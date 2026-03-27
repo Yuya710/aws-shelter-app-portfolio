@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>避難所の登録・編集 — 避難所管理システム</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        body { background-color: #f8f9fa; padding-top: 20px; font-size: 1.05rem; }
+        .table { font-size: 1rem; }
+        .form-control, .form-select { font-size: 1rem; }
+        .btn { font-size: 1rem; }
+        .badge { font-size: 0.9rem; }
+        .card-header { font-size: 1.5rem; font-weight: 700; }
+        .card-body { font-size: 1.2rem; }
+        small, .small { font-size: 0.9rem; }
+        th, td { font-size: 1rem; }
+        .card { margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .status-open { color: #198754; font-weight: bold; }
+        .status-full { color: #dc3545; font-weight: bold; }
+        .status-closed { color: #6c757d; font-weight: bold; }
+        #map { height: 400px; width: 100%; border-radius: 8px; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
+        <div class="container-fluid">
+            <span class="navbar-brand fw-bold">🏠 避難所管理システム</span>
+            <div class="navbar-nav me-auto">
+                <a class="nav-link" href="/index.html">🏛️ 自治体本部</a>
+                <a class="nav-link" href="/field.html">📋 現場報告</a>
+                <a class="nav-link" href="/logistics.html">🚚 中央物流</a>
+            </div>
+            <span class="badge bg-secondary fs-6">避難所管理</span>
+        </div>
+    </nav>
+
+    <h2 class="mb-4">🏠 避難所の登録・編集</h2>
+
+    <div class="row">
+        <div class="col-md-5">
+            <!-- 避難所登録フォーム -->
+            <div class="card">
+                <div class="card-header bg-primary text-white">避難所情報の登録・更新</div>
+                <div class="card-body">
+                    <form id="shelterForm">
+                        <div class="mb-3">
+                            <label class="form-label">避難所ID</label>
+                            <input type="text" class="form-control" id="shelterID" placeholder="S001" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">避難所名</label>
+                            <input type="text" class="form-control" id="shelterName" placeholder="第一小学校" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">住所</label>
+                            <input type="text" class="form-control" id="address" placeholder="例: ○県☆市△△町1-1-1">
+                            <small class="form-text text-muted">都道府県と市区町村は必須</small>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">代表電話番号</label>
+                            <input type="tel" class="form-control" id="phone_number" placeholder="例: 0737-63-1122">
+                            <small class="form-text text-muted">避難所に確実に繋がる電話番号</small>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">担当職員</label>
+                            <div id="staffList">
+                                <div class="input-group mb-1 staff-entry">
+                                    <input type="text" class="form-control" placeholder="氏名（例: 山田 太郎）">
+                                    <input type="tel" class="form-control" placeholder="携帯番号（例: 090-1234-5678）">
+                                    <button type="button" class="btn btn-outline-danger" onclick="removeStaff(this)">✕</button>
+                                </div>
+                            </div>
+                            <button type="button" class="btn btn-outline-secondary btn-sm mt-1" onclick="addStaff()">＋ 職員を追加</button>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">最大収容人数 (capacity)</label>
+                            <input type="number" class="form-control" id="capacity" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">現在の避難者数</label>
+                            <input type="number" class="form-control" id="current_occupancy" value="0">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">開設状態</label>
+                            <select class="form-select" id="status">
+                                <option value="OPEN">OPEN (開設中)</option>
+                                <option value="FULL">FULL (満員)</option>
+                                <option value="CLOSED">CLOSED (閉鎖)</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">避難所種別</label>
+                            <select class="form-select" id="shelter_type">
+                                <option value="designated">指定避難所</option>
+                                <option value="voluntary">自主避難所</option>
+                            </select>
+                            <small class="form-text text-muted">指定避難所: 自治体が指定した公式避難所 / 自主避難所: 地域住民が自主的に開設</small>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">避難段階</label>
+                            <select class="form-select" id="shelter_phase">
+                                <option value="primary">1次避難所（緊急避難）</option>
+                                <option value="secondary_short">1.5次避難所（短期滞在）</option>
+                                <option value="secondary">2次避難所（長期滞在）</option>
+                            </select>
+                            <small class="form-text text-muted">1次: 緊急時の一時避難 / 1.5次: 数日間の滞在 / 2次: 長期間の生活拠点</small>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">位置情報の入力方法</label>
+                            <div class="btn-group w-100 mb-2" role="group">
+                                <button type="button" class="btn btn-outline-secondary btn-sm" onclick="enableMapClick()">📍 地図をクリック</button>
+                                <button type="button" class="btn btn-outline-secondary btn-sm" data-bs-toggle="collapse" data-bs-target="#addressSearch">🔍 住所から検索</button>
+                                <button type="button" class="btn btn-outline-secondary btn-sm" onclick="clearLocation()">✕ クリア</button>
+                            </div>
+                            <div class="collapse mb-2" id="addressSearch">
+                                <div class="input-group input-group-sm">
+                                    <input type="text" class="form-control" id="address_input" placeholder="例: 東京都千代田区霞が関1-1-1">
+                                    <button class="btn btn-primary" type="button" onclick="searchAddress()">検索</button>
+                                </div>
+                                <small class="text-muted">住所を入力して検索ボタンを押してください</small>
+                            </div>
+                            <label class="form-label">緯度 (latitude)</label>
+                            <input type="number" step="0.000001" class="form-control" id="latitude" placeholder="例: 34.6937" readonly>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">経度 (longitude)</label>
+                            <input type="number" step="0.000001" class="form-control" id="longitude" placeholder="例: 135.5023" readonly>
+                            <small class="form-text text-muted" id="location_status"></small>
+                        </div>
+                        <div class="d-flex gap-2">
+                            <button type="button" class="btn btn-success flex-grow-1" onclick="registerShelter()">データ更新</button>
+                            <button type="button" class="btn btn-outline-secondary" onclick="clearShelterForm()">クリア</button>
+                        </div>
+                        <div id="shelterMessage" class="mt-2"></div>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-7">
+            <!-- 地図 -->
+            <div class="card mb-3">
+                <div class="card-header bg-primary text-white">位置情報マップ</div>
+                <div class="card-body">
+                    <div id="map"></div>
+                    <div class="mt-2">
+                        <small class="text-muted">
+                            <span class="badge bg-success">●</span> OPEN
+                            <span class="badge bg-danger ms-2">●</span> FULL
+                            <span class="badge bg-secondary ms-2">●</span> CLOSED
+                        </small>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 避難所一覧テーブル -->
+            <div class="card">
+                <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center">
+                    避難所一覧
+                    <button class="btn btn-sm btn-outline-light" onclick="fetchShelters()">最新に更新</button>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-hover table-sm">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>ID</th>
+                                    <th>名称</th>
+                                    <th>種別</th>
+                                    <th>段階</th>
+                                    <th>収容</th>
+                                    <th>現在</th>
+                                    <th>状態</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="shelterList"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    (function() {
+        const session = sessionStorage.getItem('shelter_user');
+        if (!session) { location.href = '/login.html'; return; }
+        const user = JSON.parse(session);
+        if (user.role !== 'admin') { location.href = '/login.html'; }
+    })();
+</script>
+<script>
+    const API_URL = 'https://uwvjbs5hpe.execute-api.ap-northeast-3.amazonaws.com/test2/items';
+
+    let map;
+    let markers = [];
+    let mapClickEnabled = false;
+    let tempMarker = null;
+    let sheltersData = [];
+    let shelterMarkers = {};
+
+    function initMap() {
+        map = L.map('map').setView([34.0047, 135.1847], 13);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(map);
+
+        map.on('click', function(e) {
+            if (mapClickEnabled) {
+                const lat = e.latlng.lat;
+                const lng = e.latlng.lng;
+                document.getElementById('latitude').value = lat.toFixed(6);
+                document.getElementById('longitude').value = lng.toFixed(6);
+                if (tempMarker) map.removeLayer(tempMarker);
+                tempMarker = L.marker([lat, lng], {
+                    icon: L.divIcon({
+                        className: 'temp-marker',
+                        html: '<div style="background-color: blue; width: 20px; height: 20px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.5);"></div>',
+                        iconSize: [20, 20]
+                    })
+                }).addTo(map);
+                document.getElementById('location_status').textContent = '✓ 地図から座標を取得しました。住所を取得中...';
+                document.getElementById('location_status').className = 'form-text text-info';
+                reverseGeocode(lat, lng);
+                mapClickEnabled = false;
+                map.getContainer().style.cursor = '';
+            }
+        });
+    }
+
+    function updateMapMarkers(shelters) {
+        markers.forEach(marker => map.removeLayer(marker));
+        markers = [];
+        shelterMarkers = {};
+
+        shelters.forEach(shelter => {
+            if (shelter.latitude && shelter.longitude) {
+                let iconColor = '#28a745';
+                if (shelter.status === 'FULL') iconColor = '#dc3545';
+                if (shelter.status === 'CLOSED') iconColor = '#6c757d';
+
+                const icon = L.divIcon({
+                    className: 'custom-shelter-marker',
+                    html: `<div style="background-color:${iconColor};width:30px;height:30px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:3px solid white;box-shadow:0 2px 5px rgba(0,0,0,0.4);"></div>`,
+                    iconSize: [30, 30],
+                    iconAnchor: [15, 30],
+                    popupAnchor: [0, -30]
+                });
+
+                const marker = L.marker([shelter.latitude, shelter.longitude], { icon })
+                    .addTo(map)
+                    .bindPopup(`<strong>${shelter.shelterName}</strong><br>ID: ${shelter.shelterID}<br>状態: ${shelter.status}<br>収容: ${shelter.current_occupancy}/${shelter.capacity}人`);
+
+                markers.push(marker);
+                shelterMarkers[shelter.shelterID] = marker;
+            }
+        });
+
+        if (markers.length > 0) {
+            const bounds = markers.map(m => m.getLatLng());
+            map.fitBounds(bounds, { padding: [50, 50] });
+        }
+    }
+
+    async function fetchShelters() {
+        try {
+            const response = await fetch(API_URL);
+            const data = await response.json();
+            sheltersData = data;
+            suggestNextShelterId(data);
+            displaySheltersTable(data);
+            updateMapMarkers(data);
+        } catch (e) {
+            console.error(e);
+            alert('データの取得に失敗しました。');
+        }
+    }
+
+    function suggestNextShelterId(shelters) {
+        if (!shelters || shelters.length === 0) {
+            document.getElementById('shelterID').placeholder = 'S001';
+            return;
+        }
+        let maxNumber = 0;
+        let prefix = 'S';
+        shelters.forEach(shelter => {
+            const match = (shelter.shelterID || '').match(/^([a-zA-Z]*)(\d+)$/);
+            if (match) {
+                prefix = match[1] || 'S';
+                const number = parseInt(match[2], 10);
+                if (number > maxNumber) maxNumber = number;
+            }
+        });
+        const nextId = prefix + String(maxNumber + 1).padStart(3, '0');
+        const input = document.getElementById('shelterID');
+        if (!input.value || input.value.trim() === '') input.value = nextId;
+    }
+
+    function displaySheltersTable(data) {
+        const list = document.getElementById('shelterList');
+        list.innerHTML = '';
+        data.forEach(item => {
+            const shelterTypeLabel = item.shelter_type === 'designated' ? '指定' : '自主';
+            const shelterTypeBadge = item.shelter_type === 'designated' ? 'bg-primary' : 'bg-info';
+            let phaseLabel = '1次';
+            if (item.shelter_phase === 'secondary_short') phaseLabel = '1.5次';
+            if (item.shelter_phase === 'secondary') phaseLabel = '2次';
+            const phaseBadge = item.shelter_phase === 'primary' ? 'bg-warning' :
+                               (item.shelter_phase === 'secondary_short' ? 'bg-secondary' : 'bg-success');
+            let statusClass = item.status === 'OPEN' ? 'status-open' : (item.status === 'FULL' ? 'status-full' : 'status-closed');
+
+            list.innerHTML += `
+                <tr>
+                    <td>${item.shelterID}</td>
+                    <td>${item.shelterName}</td>
+                    <td><span class="badge ${shelterTypeBadge}">${shelterTypeLabel}</span></td>
+                    <td><span class="badge ${phaseBadge}">${phaseLabel}</span></td>
+                    <td>${item.capacity}</td>
+                    <td>${item.current_occupancy}</td>
+                    <td><span class="${statusClass}">${item.status}</span></td>
+                    <td>
+                        <button class="btn btn-sm btn-outline-primary" onclick='editShelter(${JSON.stringify(item)})'>編集</button>
+                        <button class="btn btn-sm btn-outline-danger" onclick='deleteShelter("${item.shelterID}", "${item.shelterName}")'>削除</button>
+                    </td>
+                </tr>
+            `;
+        });
+    }
+
+    async function registerShelter() {
+        const staffEntries = document.querySelectorAll('#staffList .staff-entry');
+        const staff = [];
+        staffEntries.forEach(entry => {
+            const inputs = entry.querySelectorAll('input');
+            const name = inputs[0].value.trim();
+            const phone = inputs[1].value.trim();
+            if (name) staff.push({ name, phone });
+        });
+
+        const payload = {
+            shelterID: document.getElementById('shelterID').value,
+            shelterName: document.getElementById('shelterName').value,
+            address: document.getElementById('address').value,
+            phone_number: document.getElementById('phone_number').value,
+            staff: staff,
+            capacity: Number(document.getElementById('capacity').value),
+            current_occupancy: Number(document.getElementById('current_occupancy').value),
+            status: document.getElementById('status').value,
+            shelter_type: document.getElementById('shelter_type').value,
+            shelter_phase: document.getElementById('shelter_phase').value,
+            latitude: document.getElementById('latitude').value ? Number(document.getElementById('latitude').value) : null,
+            longitude: document.getElementById('longitude').value ? Number(document.getElementById('longitude').value) : null
+        };
+
+        const messageDiv = document.getElementById('shelterMessage');
+        try {
+            const response = await fetch(API_URL, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            if (response.ok) {
+                messageDiv.innerHTML = '<div class="alert alert-success">データを更新しました。</div>';
+                fetchShelters();
+                clearShelterForm();
+            } else {
+                messageDiv.innerHTML = '<div class="alert alert-danger">エラーが発生しました。</div>';
+            }
+        } catch (e) {
+            console.error(e);
+            messageDiv.innerHTML = '<div class="alert alert-danger">送信に失敗しました。</div>';
+        }
+    }
+
+    function editShelter(item) {
+        document.getElementById('shelterID').value = item.shelterID;
+        document.getElementById('shelterName').value = item.shelterName;
+        document.getElementById('address').value = item.address || '';
+        document.getElementById('phone_number').value = item.phone_number || '';
+        document.getElementById('capacity').value = item.capacity;
+        document.getElementById('current_occupancy').value = item.current_occupancy;
+        document.getElementById('status').value = item.status;
+        document.getElementById('shelter_type').value = item.shelter_type || 'designated';
+        document.getElementById('shelter_phase').value = item.shelter_phase || 'primary';
+
+        const staffList = document.getElementById('staffList');
+        staffList.innerHTML = '';
+        const staffData = item.staff && item.staff.length > 0 ? item.staff : [{ name: '', phone: '' }];
+        staffData.forEach(s => {
+            const div = document.createElement('div');
+            div.className = 'input-group mb-1 staff-entry';
+            div.innerHTML = `
+                <input type="text" class="form-control" placeholder="氏名" value="${s.name || ''}">
+                <input type="tel" class="form-control" placeholder="携帯番号" value="${s.phone || ''}">
+                <button type="button" class="btn btn-outline-danger" onclick="removeStaff(this)">✕</button>
+            `;
+            staffList.appendChild(div);
+        });
+
+        document.getElementById('latitude').value = item.latitude || '';
+        document.getElementById('longitude').value = item.longitude || '';
+
+        if (item.latitude && item.longitude) {
+            map.setView([item.latitude, item.longitude], 15);
+            if (tempMarker) map.removeLayer(tempMarker);
+            tempMarker = L.marker([item.latitude, item.longitude], {
+                icon: L.divIcon({
+                    className: 'temp-marker',
+                    html: '<div style="background-color: blue; width: 20px; height: 20px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.5);"></div>',
+                    iconSize: [20, 20]
+                })
+            }).addTo(map);
+            document.getElementById('location_status').textContent = '✓ 既存の位置情報';
+            document.getElementById('location_status').className = 'form-text text-success';
+        }
+
+        document.getElementById('shelterForm').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+
+    function clearShelterForm() {
+        document.getElementById('shelterID').value = '';
+        document.getElementById('shelterName').value = '';
+        document.getElementById('address').value = '';
+        document.getElementById('phone_number').value = '';
+        document.getElementById('capacity').value = '';
+        document.getElementById('current_occupancy').value = '0';
+        document.getElementById('status').value = 'OPEN';
+        document.getElementById('shelter_type').value = 'designated';
+        document.getElementById('shelter_phase').value = 'primary';
+        document.getElementById('shelterMessage').innerHTML = '';
+        const staffList = document.getElementById('staffList');
+        staffList.innerHTML = `
+            <div class="input-group mb-1 staff-entry">
+                <input type="text" class="form-control" placeholder="氏名（例: 山田 太郎）">
+                <input type="tel" class="form-control" placeholder="携帯番号（例: 090-1234-5678）">
+                <button type="button" class="btn btn-outline-danger" onclick="removeStaff(this)">✕</button>
+            </div>
+        `;
+        clearLocation();
+        suggestNextShelterId(sheltersData);
+    }
+
+    function addStaff() {
+        const staffList = document.getElementById('staffList');
+        const div = document.createElement('div');
+        div.className = 'input-group mb-1 staff-entry';
+        div.innerHTML = `
+            <input type="text" class="form-control" placeholder="氏名（例: 山田 太郎）">
+            <input type="tel" class="form-control" placeholder="携帯番号（例: 090-1234-5678）">
+            <button type="button" class="btn btn-outline-danger" onclick="removeStaff(this)">✕</button>
+        `;
+        staffList.appendChild(div);
+    }
+
+    function removeStaff(btn) {
+        const entries = document.querySelectorAll('#staffList .staff-entry');
+        if (entries.length > 1) btn.closest('.staff-entry').remove();
+    }
+
+    function enableMapClick() {
+        mapClickEnabled = true;
+        map.getContainer().style.cursor = 'crosshair';
+        document.getElementById('location_status').textContent = '地図上の位置をクリックしてください';
+        document.getElementById('location_status').className = 'form-text text-primary';
+        document.getElementById('map').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+
+    async function searchAddress() {
+        const address = document.getElementById('address_input').value;
+        if (!address || address.trim() === '') { alert('住所を入力してください'); return; }
+        document.getElementById('location_status').textContent = '検索中...';
+        document.getElementById('location_status').className = 'form-text text-info';
+        try {
+            const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}&limit=1&countrycodes=jp`);
+            const data = await response.json();
+            if (data && data.length > 0) {
+                const lat = parseFloat(data[0].lat);
+                const lng = parseFloat(data[0].lon);
+                document.getElementById('latitude').value = lat.toFixed(6);
+                document.getElementById('longitude').value = lng.toFixed(6);
+                document.getElementById('address').value = address;
+                map.setView([lat, lng], 15);
+                if (tempMarker) map.removeLayer(tempMarker);
+                tempMarker = L.marker([lat, lng], {
+                    icon: L.divIcon({
+                        className: 'temp-marker',
+                        html: '<div style="background-color: blue; width: 20px; height: 20px; border-radius: 50%; border: 3px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.5);"></div>',
+                        iconSize: [20, 20]
+                    })
+                }).addTo(map).bindPopup(`検索結果: ${data[0].display_name}`).openPopup();
+                document.getElementById('location_status').textContent = '✓ 住所から座標を取得しました';
+                document.getElementById('location_status').className = 'form-text text-success';
+            } else {
+                document.getElementById('location_status').textContent = '✗ 住所が見つかりませんでした';
+                document.getElementById('location_status').className = 'form-text text-danger';
+                alert('住所が見つかりませんでした。別の表記で試してください。');
+            }
+        } catch (e) {
+            console.error(e);
+            document.getElementById('location_status').textContent = '✗ 検索エラー';
+            document.getElementById('location_status').className = 'form-text text-danger';
+            alert('住所検索に失敗しました。');
+        }
+    }
+
+    async function reverseGeocode(lat, lng) {
+        try {
+            const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1&accept-language=ja`, {
+                headers: { 'Accept': 'application/json' }
+            });
+            if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+            const data = await response.json();
+            if (data && data.address) {
+                const prefecture = data.address.state || data.address.province || '';
+                const city = data.address.city || data.address.town || data.address.village || '';
+                const suburb = data.address.suburb || data.address.neighbourhood || data.address.quarter || '';
+                const road = data.address.road || '';
+                const houseNumber = data.address.house_number || '';
+                let fullAddress = prefecture + city + suburb + road + houseNumber;
+                if (fullAddress) {
+                    document.getElementById('address').value = fullAddress;
+                    document.getElementById('location_status').textContent = '✓ 座標と住所を取得しました';
+                    document.getElementById('location_status').className = 'form-text text-success';
+                } else {
+                    document.getElementById('location_status').textContent = '✓ 座標を取得しました（住所情報なし）';
+                    document.getElementById('location_status').className = 'form-text text-warning';
+                }
+            } else {
+                document.getElementById('location_status').textContent = '✓ 座標を取得しました（住所情報なし）';
+                document.getElementById('location_status').className = 'form-text text-warning';
+            }
+        } catch (e) {
+            console.error('逆ジオコーディングエラー:', e);
+            document.getElementById('location_status').textContent = '✓ 座標を取得しました（住所取得失敗）';
+            document.getElementById('location_status').className = 'form-text text-warning';
+        }
+    }
+
+    function clearLocation() {
+        document.getElementById('latitude').value = '';
+        document.getElementById('longitude').value = '';
+        document.getElementById('address').value = '';
+        const addrInput = document.getElementById('address_input');
+        if (addrInput) addrInput.value = '';
+        document.getElementById('location_status').textContent = '';
+        if (tempMarker) { map.removeLayer(tempMarker); tempMarker = null; }
+        mapClickEnabled = false;
+        map.getContainer().style.cursor = '';
+    }
+
+    async function deleteShelter(shelterId, shelterName) {
+        if (!confirm(`避難所「${shelterName}（${shelterId}）」を削除しますか？\n\n注意: この避難所に関連する物資情報もすべて削除されます。`)) return;
+        try {
+            const response = await fetch(`${API_URL}?shelterID=${encodeURIComponent(shelterId)}`, { method: 'DELETE' });
+            const data = await response.json();
+            if (response.ok) {
+                alert(`避難所を削除しました。\n削除された物資: ${data.deleted_supplies_count}件`);
+                fetchShelters();
+            } else {
+                alert(`エラー: ${data.error || '削除に失敗しました'}`);
+            }
+        } catch (e) {
+            console.error(e);
+            alert('削除に失敗しました。');
+        }
+    }
+
+    window.onload = function() {
+        initMap();
+        fetchShelters();
+    };
+</script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

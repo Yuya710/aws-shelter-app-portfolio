@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>物資の登録・編集 — 避難所管理システム</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { background-color: #f8f9fa; padding-top: 20px; font-size: 1.05rem; }
+        .table { font-size: 1rem; }
+        .form-control, .form-select { font-size: 1rem; }
+        .btn { font-size: 1rem; }
+        .badge { font-size: 0.9rem; }
+        .card-header { font-size: 1.5rem; font-weight: 700; }
+        .card-body { font-size: 1.2rem; }
+        small, .small { font-size: 0.9rem; }
+        th, td { font-size: 1rem; }
+        .card { margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+    </style>
+</head>
+<body>
+<div class="container">
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
+        <div class="container-fluid">
+            <span class="navbar-brand fw-bold">🏠 避難所管理システム</span>
+            <div class="navbar-nav me-auto">
+                <a class="nav-link" href="/index.html">🏛️ 自治体本部</a>
+                <a class="nav-link" href="/field.html">📋 現場報告</a>
+                <a class="nav-link" href="/logistics.html">🚚 中央物流</a>
+            </div>
+            <span class="badge bg-success fs-6">物資管理</span>
+        </div>
+    </nav>
+
+    <h2 class="mb-4">📦 物資の登録・編集</h2>
+
+    <div class="row">
+        <div class="col-md-4">
+            <!-- 物資登録フォーム -->
+            <div class="card">
+                <div class="card-header bg-success text-white">支援物資の登録・更新</div>
+                <div class="card-body">
+                    <form id="supplyForm">
+                        <div class="mb-3">
+                            <label class="form-label">避難所ID</label>
+                            <select class="form-select" id="supply_shelter_id" required>
+                                <option value="">避難所を選択してください</option>
+                            </select>
+                            <small class="form-text text-muted">避難所が表示されない場合は、先に避難所を登録してください</small>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">物資カテゴリ</label>
+                            <select class="form-select" id="supply_category" onchange="updateItemSuggestions()">
+                                <option value="">カテゴリを選択してください</option>
+                                <option value="water_food">水・食料</option>
+                                <option value="tableware">食器類</option>
+                                <option value="clothing">衣類・防寒</option>
+                                <option value="bedding">寝具</option>
+                                <option value="sanitary">風呂・トイレ・洗濯</option>
+                                <option value="hygiene">衛生用品</option>
+                                <option value="work">作業用品</option>
+                                <option value="other">その他</option>
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">物資品目</label>
+                            <input type="text" class="form-control" id="supply_item_name" list="item_suggestions"
+                                   placeholder="カテゴリを選択すると候補が表示されます" required>
+                            <datalist id="item_suggestions"></datalist>
+                            <small class="form-text text-muted">候補から選択するか、直接入力してください</small>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">数量</label>
+                            <input type="number" class="form-control" id="supply_quantity" min="0" max="100000" required>
+                            <small class="form-text text-muted">最大: 100,000個</small>
+                        </div>
+                        <button type="button" class="btn btn-success w-100" onclick="registerSupply()">物資を登録</button>
+                    </form>
+                    <div id="supplyMessage" class="mt-2"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-8">
+            <!-- 物資一覧 -->
+            <div class="card">
+                <div class="card-header bg-info text-white d-flex justify-content-between align-items-center">
+                    支援物資一覧
+                    <button class="btn btn-sm btn-outline-light" onclick="fetchAllSupplies()">最新に更新</button>
+                </div>
+                <div class="card-body">
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <label class="form-label">避難所で絞り込み</label>
+                            <select class="form-select" id="shelter_filter" onchange="applyFilters()">
+                                <option value="">すべての避難所</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">物資品目で検索</label>
+                            <input type="text" class="form-control" id="item_search"
+                                   placeholder="例: 水、毛布" oninput="applyFilters()">
+                        </div>
+                    </div>
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" id="show_low_stock" onchange="applyFilters()">
+                        <label class="form-check-label" for="show_low_stock">
+                            在庫が少ない物資のみ表示（3日分以下）
+                        </label>
+                    </div>
+                    <div class="table-responsive">
+                        <div id="suppliesDisplay"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    (function() {
+        const session = sessionStorage.getItem('shelter_user');
+        if (!session) { location.href = '/login.html'; return; }
+        const user = JSON.parse(session);
+        if (user.role !== 'admin') { location.href = '/login.html'; }
+    })();
+</script>
+<script>
+    const API_URL = 'https://uwvjbs5hpe.execute-api.ap-northeast-3.amazonaws.com/test2/items';
+    const SUPPLIES_API_URL = 'https://uwvjbs5hpe.execute-api.ap-northeast-3.amazonaws.com/test2/supplies';
+
+    const supplyCategories = {
+        water_food: [
+            '水（500ml）', '水（2L）', 'お茶（500ml）', 'お茶（2L）',
+            'スポーツドリンク（500ml）', 'スポーツドリンク（2L）',
+            'アルファ化米', 'パックご飯', '弁当', '缶詰', 'レトルト食品', 'おかゆ'
+        ],
+        tableware: ['紙皿', '紙ボウル', '紙コップ', '割りばし', 'スプーン', 'フォーク'],
+        clothing: ['防寒着', 'カイロ', 'シャツ', '靴下', 'おむつ（大人用）', 'おむつ（子供用）'],
+        bedding: ['段ボールベッド', '間仕切り', '布団', '毛布', '枕'],
+        sanitary: ['シャンプー', 'ボディソープ', '携帯トイレ', '簡易洗濯袋', 'トイレットペーパー'],
+        hygiene: ['歯ブラシ', 'うがい薬', 'マスク', '生理用品', '洗剤', '消毒液', 'ティッシュ'],
+        work: ['長靴', '軍手', 'ロープ', 'ブルーシート', '土のう袋'],
+        other: ['仮設トイレ', '衛星通信装置', '燃料（ガソリン）', '燃料（灯油）', '懐中電灯', '電池（単3）', '電池（単4）']
+    };
+
+    function getLowStockThreshold(itemName, occupancy) {
+        const n = occupancy || 0;
+        const thresholds = {
+            '水（500ml）': n * 9, '水（2L）': n * 2.25,
+            'お茶（500ml）': n * 9, 'お茶（2L）': n * 2.25,
+            'スポーツドリンク（500ml）': n * 9, 'スポーツドリンク（2L）': n * 2.25,
+            'アルファ化米': n * 9, 'パックご飯': n * 9, '弁当': n * 9,
+            '缶詰': n * 9, 'レトルト食品': n * 9, 'おかゆ': n * 9,
+            '紙皿': n * 9, '紙ボウル': n * 9, '紙コップ': n * 9,
+            '割りばし': n * 9, 'スプーン': n * 9, 'フォーク': n * 9,
+            'カイロ': n * 9, 'おむつ（大人用）': n * 15, 'おむつ（子供用）': n * 21,
+            '携帯トイレ': n * 15, 'トイレットペーパー': n * 24.75,
+            '歯ブラシ': n * 1, 'マスク': n * 9, '生理用品': n * 16.5, 'ティッシュ': n * 1,
+        };
+        return thresholds[itemName] !== undefined ? thresholds[itemName] : 10;
+    }
+
+    let sheltersData = [];
+    let allSuppliesData = [];
+
+    function getOccupancy(shelterId) {
+        const shelter = sheltersData.find(s => s.shelterID === shelterId);
+        return shelter ? (shelter.current_occupancy || 0) : 0;
+    }
+
+    function updateItemSuggestions() {
+        const category = document.getElementById('supply_category').value;
+        const datalist = document.getElementById('item_suggestions');
+        datalist.innerHTML = '';
+        if (category && supplyCategories[category]) {
+            supplyCategories[category].forEach(item => {
+                const option = document.createElement('option');
+                option.value = item;
+                datalist.appendChild(option);
+            });
+            document.getElementById('supply_item_name').placeholder = '候補から選択するか、直接入力してください';
+        } else {
+            document.getElementById('supply_item_name').placeholder = 'カテゴリを選択してください';
+        }
+        document.getElementById('supply_item_name').value = '';
+    }
+
+    async function fetchShelters() {
+        try {
+            const response = await fetch(API_URL);
+            sheltersData = await response.json();
+            const select = document.getElementById('supply_shelter_id');
+            select.innerHTML = '<option value="">避難所を選択してください</option>';
+            sheltersData.forEach(shelter => {
+                const option = document.createElement('option');
+                option.value = shelter.shelterID;
+                option.textContent = `${shelter.shelterID} - ${shelter.shelterName}`;
+                select.appendChild(option);
+            });
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    async function fetchAllSupplies() {
+        try {
+            const response = await fetch(SUPPLIES_API_URL + '/all');
+            const data = await response.json();
+            allSuppliesData = data.shelters || [];
+            updateShelterFilter();
+            displaySupplies(allSuppliesData);
+        } catch (e) {
+            console.error(e);
+            document.getElementById('suppliesDisplay').innerHTML =
+                '<div class="alert alert-danger">物資データの取得に失敗しました。</div>';
+        }
+    }
+
+    async function registerSupply() {
+        const shelterId = document.getElementById('supply_shelter_id').value;
+        const itemName = document.getElementById('supply_item_name').value;
+        const quantity = Number(document.getElementById('supply_quantity').value);
+        const messageDiv = document.getElementById('supplyMessage');
+        messageDiv.innerHTML = '';
+
+        if (!shelterId || !itemName || quantity < 0) {
+            messageDiv.innerHTML = '<div class="alert alert-danger">すべての項目を正しく入力してください。</div>';
+            return;
+        }
+        if (quantity > 100000) {
+            messageDiv.innerHTML = '<div class="alert alert-danger">数量は100,000以下で入力してください。</div>';
+            return;
+        }
+
+        try {
+            const response = await fetch(SUPPLIES_API_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ shelter_id: shelterId, item_name: itemName, quantity })
+            });
+            const data = await response.json();
+            if (response.ok) {
+                messageDiv.innerHTML = '<div class="alert alert-success">物資情報を登録しました。</div>';
+                document.getElementById('supply_item_name').value = '';
+                document.getElementById('supply_quantity').value = '';
+                fetchAllSupplies();
+            } else {
+                messageDiv.innerHTML = `<div class="alert alert-danger">エラー: ${data.error || '登録に失敗しました'}</div>`;
+            }
+        } catch (e) {
+            console.error(e);
+            messageDiv.innerHTML = '<div class="alert alert-danger">送信に失敗しました。</div>';
+        }
+    }
+
+    function updateShelterFilter() {
+        const filterSelect = document.getElementById('shelter_filter');
+        const currentValue = filterSelect.value;
+        filterSelect.innerHTML = '<option value="">すべての避難所</option>';
+        const shelterIds = [...new Set(allSuppliesData.map(s => s.shelter_id))];
+        shelterIds.forEach(id => {
+            const option = document.createElement('option');
+            option.value = id;
+            option.textContent = id;
+            if (id === currentValue) option.selected = true;
+            filterSelect.appendChild(option);
+        });
+    }
+
+    function applyFilters() {
+        const selectedShelterId = document.getElementById('shelter_filter').value;
+        const searchText = document.getElementById('item_search').value.toLowerCase();
+        const showLowStock = document.getElementById('show_low_stock').checked;
+
+        let filtered = allSuppliesData;
+        if (selectedShelterId) {
+            filtered = filtered.filter(s => s.shelter_id === selectedShelterId);
+        }
+        if (searchText) {
+            filtered = filtered.map(shelter => ({
+                ...shelter,
+                supplies: shelter.supplies.filter(s => s.item_name.toLowerCase().includes(searchText))
+            })).filter(s => s.supplies.length > 0);
+        }
+        if (showLowStock) {
+            filtered = filtered.map(shelter => ({
+                ...shelter,
+                supplies: shelter.supplies.filter(s => {
+                    const threshold = getLowStockThreshold(s.item_name, getOccupancy(shelter.shelter_id));
+                    return s.quantity <= threshold;
+                })
+            })).filter(s => s.supplies.length > 0);
+        }
+        displaySupplies(filtered);
+    }
+
+    function displaySupplies(data) {
+        const displayDiv = document.getElementById('suppliesDisplay');
+        if (!data || data.length === 0) {
+            displayDiv.innerHTML = '<div class="alert alert-info">物資情報がありません。</div>';
+            return;
+        }
+
+        let html = '';
+        data.forEach(shelter => {
+            html += `
+                <div class="mb-4">
+                    <h5 class="text-primary">避難所: ${shelter.shelter_id}</h5>
+                    <table class="table table-sm table-bordered">
+                        <thead class="table-light">
+                            <tr><th>物資品目</th><th>数量</th><th>最終更新</th><th>操作</th></tr>
+                        </thead>
+                        <tbody>
+            `;
+            if (shelter.supplies && shelter.supplies.length > 0) {
+                shelter.supplies.forEach(supply => {
+                    const updatedAt = supply.updated_at ? new Date(supply.updated_at).toLocaleString('ja-JP') : '-';
+                    const isOutOfStock = supply.quantity === 0;
+                    const threshold = getLowStockThreshold(supply.item_name, getOccupancy(shelter.shelter_id));
+                    const isLowStock = !isOutOfStock && supply.quantity <= threshold;
+                    const shortage = Math.ceil(threshold - supply.quantity);
+
+                    let tooltipText = `3日分の目安: ${Math.ceil(threshold)}`;
+                    if (isOutOfStock) tooltipText += ` | あと ${shortage} 必要`;
+                    else if (isLowStock) tooltipText += ` | あと ${shortage} 追加で3日分に到達`;
+                    else tooltipText += ` | 3日分を充足しています`;
+
+                    let rowClass = '';
+                    let quantityDisplay = `<span data-bs-toggle="tooltip" title="${tooltipText}">${supply.quantity}</span>`;
+                    if (isOutOfStock) {
+                        rowClass = 'table-danger';
+                        quantityDisplay = `<span class="badge bg-danger" data-bs-toggle="tooltip" title="${tooltipText}">${supply.quantity} ❌ 在庫なし</span>`;
+                    } else if (isLowStock) {
+                        rowClass = 'table-warning';
+                        quantityDisplay = `<span class="badge bg-warning text-dark" data-bs-toggle="tooltip" title="${tooltipText}">${supply.quantity} ⚠️ 在庫少</span>`;
+                    }
+
+                    html += `
+                        <tr class="${rowClass}">
+                            <td>${supply.item_name}</td>
+                            <td>${quantityDisplay}</td>
+                            <td>${updatedAt}</td>
+                            <td>
+                                <button class="btn btn-sm btn-outline-primary"
+                                    onclick='editSupply("${shelter.shelter_id}", "${supply.item_name}", ${supply.quantity})'>編集</button>
+                                <button class="btn btn-sm btn-outline-danger"
+                                    onclick='deleteSupply("${shelter.shelter_id}", "${supply.item_name}")'>削除</button>
+                            </td>
+                        </tr>
+                    `;
+                });
+            } else {
+                html += '<tr><td colspan="4" class="text-center">物資情報なし</td></tr>';
+            }
+            html += '</tbody></table></div>';
+        });
+
+        displayDiv.innerHTML = html;
+        displayDiv.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(el => new bootstrap.Tooltip(el));
+    }
+
+    function editSupply(shelterId, itemName, quantity) {
+        document.getElementById('supply_shelter_id').value = shelterId;
+        document.getElementById('supply_item_name').value = itemName;
+        document.getElementById('supply_quantity').value = quantity;
+
+        let foundCategory = '';
+        for (const [category, items] of Object.entries(supplyCategories)) {
+            if (items.includes(itemName)) { foundCategory = category; break; }
+        }
+        if (foundCategory) {
+            document.getElementById('supply_category').value = foundCategory;
+            updateItemSuggestions();
+            document.getElementById('supply_item_name').value = itemName;
+        } else {
+            document.getElementById('supply_category').value = '';
+        }
+        document.getElementById('supplyForm').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+
+    async function deleteSupply(shelterId, itemName) {
+        if (!confirm(`物資「${itemName}」を削除しますか？`)) return;
+        try {
+            const response = await fetch(
+                `${SUPPLIES_API_URL}?shelter_id=${encodeURIComponent(shelterId)}&item_name=${encodeURIComponent(itemName)}`,
+                { method: 'DELETE' }
+            );
+            const data = await response.json();
+            if (response.ok) {
+                alert('物資情報を削除しました。');
+                fetchAllSupplies();
+            } else {
+                alert(`エラー: ${data.error || '削除に失敗しました'}`);
+            }
+        } catch (e) {
+            console.error(e);
+            alert('削除に失敗しました。');
+        }
+    }
+
+    window.onload = async function() {
+        await fetchShelters();
+        fetchAllSupplies();
+    };
+</script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ログイン — 避難所管理システム</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { background-color: #343a40; min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+        .login-card { width: 100%; max-width: 400px; }
+    </style>
+</head>
+<body>
+<div class="login-card">
+    <div class="card shadow-lg">
+        <div class="card-header bg-dark text-white text-center py-3">
+            <h4 class="mb-0">🏠 避難所管理システム</h4>
+            <small class="text-white-50">職員ログイン</small>
+        </div>
+        <div class="card-body p-4">
+            <div class="mb-3">
+                <label class="form-label fw-bold">職員ID</label>
+                <input type="text" class="form-control form-control-lg" id="userID" placeholder="例: EMP001" autofocus>
+            </div>
+            <div class="mb-4">
+                <label class="form-label fw-bold">パスワード</label>
+                <input type="password" class="form-control form-control-lg" id="password" placeholder="パスワードを入力" onkeypress="if(event.key==='Enter') login()">
+            </div>
+            <button class="btn btn-primary w-100 btn-lg" onclick="login()">ログイン</button>
+            <div id="loginMessage" class="mt-3"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+    const AUTH_URL = 'https://uwvjbs5hpe.execute-api.ap-northeast-3.amazonaws.com/test2/auth';
+
+    // ロールごとのリダイレクト先
+    const ROLE_REDIRECT = {
+        admin:     '/index.html',
+        field:     '/field.html',
+        logistics: '/logistics.html'
+    };
+
+    // すでにログイン済みなら対応ページへ
+    const session = sessionStorage.getItem('shelter_user');
+    if (session) {
+        const user = JSON.parse(session);
+        location.href = ROLE_REDIRECT[user.role] || '/index.html';
+    }
+
+    async function login() {
+        const userID = document.getElementById('userID').value.trim();
+        const password = document.getElementById('password').value.trim();
+        const msgDiv = document.getElementById('loginMessage');
+
+        if (!userID || !password) {
+            msgDiv.innerHTML = '<div class="alert alert-warning">IDとパスワードを入力してください。</div>';
+            return;
+        }
+
+        msgDiv.innerHTML = '<div class="alert alert-info">認証中...</div>';
+
+        try {
+            const res = await fetch(AUTH_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ userID, password })
+            });
+            const data = await res.json();
+
+            if (res.ok && data.success) {
+                sessionStorage.setItem('shelter_user', JSON.stringify(data.user));
+                location.href = ROLE_REDIRECT[data.user.role] || '/index.html';
+            } else {
+                msgDiv.innerHTML = `<div class="alert alert-danger">${data.error || 'ログインに失敗しました。'}</div>`;
+            }
+        } catch (e) {
+            msgDiv.innerHTML = '<div class="alert alert-danger">通信エラーが発生しました。</div>';
+        }
+    }
+</script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

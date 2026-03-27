@@ -1,0 +1,1887 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <title>☆市 避難所管理システム</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        html, body { height: 100%; margin: 0; }
+        body { background-color: #f8f9fa; font-size: 1.05rem; display: flex; flex-direction: column; overflow: hidden; }
+        .table { font-size: 1rem; }
+        .form-control, .form-select { font-size: 1rem; }
+        .btn { font-size: 1rem; }
+        .badge { font-size: 0.9rem; }
+        .card-header { font-size: 1.05rem; }
+        small, .small { font-size: 0.9rem; }
+        th, td { font-size: 1rem; }
+        .card { margin-bottom: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .card-body { padding: 0.6rem; font-size: 1.2rem; }
+        .card-header { padding: 0.5rem 0.75rem; font-size: 1.5rem; font-weight: 700; }
+        .status-open { color: #198754; font-weight: bold; }
+        .status-full { color: #dc3545; font-weight: bold; }
+        .status-closed { color: #6c757d; font-weight: bold; }
+        #map { height: 100%; width: 100%; border-radius: 6px; min-height: 200px; }
+        .map-wrapper { flex: 1 1 0; min-height: 0; }
+        #dashboard { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; }
+        .left-col { display: flex; flex-direction: column; height: 100%; }
+        .right-col { display: flex; flex-direction: column; height: 100%; overflow-y: auto; }
+        .panel-scroll { overflow-y: auto; flex: 1 1 0; min-height: 0; }
+        .chat-panel { display: flex; flex-direction: column; }
+        #chatMessages { flex: 1 1 0; min-height: 0; overflow-y: auto; }
+        .sortable-header { cursor: pointer; user-select: none; }
+        .sortable-header:hover { background-color: #e9ecef; }
+        .boundary-label {
+            background-color: rgba(255, 255, 255, 0.9);
+            border: 1px solid #2563eb;
+            border-radius: 4px;
+            padding: 2px 6px;
+            font-size: 12px;
+            font-weight: bold;
+            color: #1e40af;
+        }
+        .shelter-row-clickable:hover {
+            background-color: #e7f3ff !important;
+            transition: background-color 0.2s;
+        }
+        .shelter-row-clickable {
+            cursor: pointer;
+        }
+        .chat-message {
+            margin-bottom: 10px;
+            padding: 8px 12px;
+            border-radius: 8px;
+            max-width: 80%;
+        }
+        .user-message {
+            background-color: #007bff;
+            color: white;
+            margin-left: auto;
+            text-align: right;
+        }
+        .system-message {
+            background-color: #e9ecef;
+            color: #333;
+        }
+        .chat-result {
+            background-color: #d1ecf1;
+            border-left: 4px solid #0c5460;
+            padding: 10px;
+            margin-top: 5px;
+        }
+        @keyframes blink {
+            0%, 100% { opacity: 0.2; }
+            50% { opacity: 1; }
+        }
+        .loading-dots span {
+            animation: blink 1.4s infinite;
+        }
+        .loading-dots span:nth-child(2) { animation-delay: 0.2s; }
+        .loading-dots span:nth-child(3) { animation-delay: 0.4s; }
+    </style>
+</head>
+<body>
+
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark px-3 py-1">
+    <span class="navbar-brand fw-bold mb-0">🏠 避難所管理システム</span>
+    <div class="navbar-nav me-auto" id="nav-links">
+        <a class="nav-link active fw-bold" href="/index.html">🏛️ 自治体本部</a>
+        <a class="nav-link" href="/field.html" id="nav-field" style="display:none">📋 現場報告</a>
+        <a class="nav-link" href="/logistics.html" id="nav-logistics" style="display:none">🚚 中央物流</a>
+    </div>
+    <!-- サマリーカード（ナビバー内） -->
+    <div class="d-flex gap-2 align-items-center me-3">
+        <div class="bg-success text-white rounded px-3 py-1 text-center" style="min-width:80px">
+            <div class="fw-bold fs-5" id="summary-open">-</div>
+            <div style="font-size:0.75rem">🟢 開設中</div>
+        </div>
+        <div class="bg-danger text-white rounded px-3 py-1 text-center" style="min-width:80px">
+            <div class="fw-bold fs-5" id="summary-full">-</div>
+            <div style="font-size:0.75rem">🔴 満員</div>
+        </div>
+        <div class="bg-primary text-white rounded px-3 py-1 text-center" style="min-width:90px">
+            <div class="fw-bold fs-5" id="summary-occupancy">-</div>
+            <div style="font-size:0.75rem">👥 総避難者数</div>
+        </div>
+        <div class="bg-warning text-dark rounded px-3 py-1 text-center" style="min-width:90px">
+            <div class="fw-bold fs-5" id="summary-lowstock">-</div>
+            <div style="font-size:0.75rem">⚠️ 物資不足</div>
+        </div>
+    </div>
+    <span class="badge bg-primary fs-6">自治体本部モード</span>
+    <button class="btn btn-sm btn-outline-light ms-2" onclick="sessionStorage.removeItem('shelter_user');location.href='/login.html'">ログアウト</button>
+</nav>
+
+<div id="dashboard" class="container-fluid px-2 py-2" style="flex:1;min-height:0;display:flex;flex-direction:column;">
+    <div class="row g-2" style="flex:1;min-height:0;">
+
+        <!-- 左カラム: 地図のみ -->
+        <div class="col-lg-5 d-flex flex-column" style="min-height:0;height:calc(100vh - 56px - 16px);overflow:hidden;">
+
+            <!-- 地図 -->
+            <div class="card flex-grow-1" style="min-height:0;">
+                <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center py-1">
+                    <span>🗺️ 避難所マップ</span>
+                    <div class="d-flex gap-2">
+                        <div class="form-check form-check-inline form-switch mb-0">
+                            <input class="form-check-input" type="checkbox" id="boundaryToggle" onchange="toggleBoundary()" checked>
+                            <label class="form-check-label" for="boundaryToggle" style="font-size:0.85rem">境界</label>
+                        </div>
+                        <div class="form-check form-check-inline form-switch mb-0">
+                            <input class="form-check-input" type="checkbox" id="hazardToggle" onchange="toggleHazardMap()">
+                            <label class="form-check-label" for="hazardToggle" style="font-size:0.85rem">津波</label>
+                        </div>
+                    </div>
+                </div>
+                <div class="card-body p-1 map-wrapper">
+                    <div id="map"></div>
+                </div>
+                <div class="px-2 pb-1">
+                    <small class="text-muted">
+                        <span class="badge bg-success">●</span> OPEN
+                        <span class="badge bg-danger ms-1">●</span> FULL
+                        <span class="badge bg-secondary ms-1">●</span> CLOSED
+                    </small>
+                    <div id="hazardLegend" style="display:none;" class="mt-1">
+                        <small><strong>津波浸水:</strong>
+                        <span style="background:rgba(255,0,0,0.6);padding:1px 6px;color:white">5m+</span>
+                        <span style="background:rgba(255,100,0,0.6);padding:1px 6px;color:white">3-5m</span>
+                        <span style="background:rgba(255,200,0,0.6);padding:1px 6px">1-3m</span>
+                        <span style="background:rgba(255,255,0,0.5);padding:1px 6px">0.5-1m</span>
+                        </small>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 管理ページリンク -->
+            <div class="card" style="flex:0 0 auto;">
+                <div class="card-body py-2 d-flex gap-2">
+                    <a href="/shelters.html" class="btn btn-outline-primary flex-grow-1">🏠 避難所の登録・編集</a>
+                    <a href="/supplies.html" class="btn btn-outline-success flex-grow-1">📦 物資の登録・編集</a>
+                </div>
+            </div>
+        </div>
+
+        <!-- 右カラム: 避難所一覧 + 要請 + 物資 + AIチャット -->
+        <div class="col-lg-7" id="right-col" style="height:calc(100vh - 56px - 16px);position:relative;overflow:hidden;">
+
+            <!-- 上ペイン -->
+            <div id="right-top" style="position:absolute;top:0;left:0;right:0;bottom:calc(240px + 8px);overflow-y:auto;overflow-x:hidden;">
+
+            <!-- 避難所一覧 -->
+            <div class="card">
+                <div class="card-header bg-dark text-white d-flex justify-content-between align-items-center py-1">
+                    <span>🏠 避難所一覧</span>
+                    <button class="btn btn-sm btn-outline-light py-0" onclick="fetchShelters()">更新</button>
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-responsive" style="max-height:280px;overflow-y:auto;">
+                        <table class="table table-hover table-sm mb-0">
+                            <thead class="table-light sticky-top">
+                                <tr>
+                                    <th class="sortable-header" onclick="sortShelters('id')">ID <span id="sort-id-icon">↕️</span></th>
+                                    <th>名称</th>
+                                    <th>種別</th>
+                                    <th>段階</th>
+                                    <th>住所</th>
+                                    <th>電話番号</th>
+                                    <th>担当職員</th>
+                                    <th class="sortable-header" onclick="sortShelters('capacity')">収容 <span id="sort-capacity-icon">↕️</span></th>
+                                    <th class="sortable-header" onclick="sortShelters('current')">現在 <span id="sort-current-icon">↕️</span></th>
+                                    <th class="sortable-header" onclick="sortShelters('rate')">使用率 <span id="sort-rate-icon">↕️</span></th>
+                                    <th>状態</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="shelterList"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 物資補充要請 -->
+            <div class="card">
+                <div class="card-header bg-warning text-dark d-flex justify-content-between align-items-center py-1">
+                    <span>📋 物資補充要請 <span class="badge bg-danger" id="pending-count" style="display:none!important">0</span></span>
+                    <div class="d-flex gap-2 align-items-center">
+                        <select class="form-select form-select-sm" id="request_status_filter" onchange="fetchRequests()" style="width:auto">
+                            <option value="">すべて</option>
+                            <option value="pending" selected>承認待ち</option>
+                            <option value="approved">承認済み</option>
+                            <option value="rejected">却下</option>
+                            <option value="shipped">出荷中</option>
+                            <option value="delivered">受領済み</option>
+                        </select>
+                        <button class="btn btn-sm btn-outline-dark py-0" onclick="fetchRequests()">更新</button>
+                    </div>
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-responsive" style="max-height:200px;overflow-y:auto;">
+                        <table class="table table-sm table-hover mb-0">
+                            <thead class="table-light sticky-top">
+                                <tr>
+                                    <th>避難所</th>
+                                    <th>物資品目</th>
+                                    <th>数量</th>
+                                    <th>緊急度</th>
+                                    <th>ステータス</th>
+                                    <th>作成日時</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="requestsList"></tbody>
+                        </table>
+                    </div>
+                    <div id="requestsMessage" class="px-2"></div>
+                </div>
+            </div>
+
+            <!-- 物資一覧 -->
+            <div class="card">
+                <div class="card-header bg-info text-white d-flex justify-content-between align-items-center py-1">
+                    <span>📦 支援物資一覧</span>
+                    <button class="btn btn-sm btn-outline-light py-0" onclick="fetchAllSupplies()">更新</button>
+                </div>
+                <div class="card-body p-2">
+                    <div class="row g-2 mb-2">
+                        <div class="col-md-4">
+                            <select class="form-select form-select-sm" id="shelter_filter" onchange="applyFilters()">
+                                <option value="">すべての避難所</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <input type="text" class="form-control form-control-sm" id="item_search" placeholder="品目で検索" oninput="applyFilters()">
+                        </div>
+                        <div class="col-md-4">
+                            <div class="form-check mt-1">
+                                <input class="form-check-input" type="checkbox" id="show_low_stock" onchange="applyFilters()">
+                                <label class="form-check-label" for="show_low_stock">在庫少のみ</label>
+                            </div>
+                        </div>
+                    </div>
+                    <div style="max-height:250px;overflow-y:auto;">
+                        <div id="suppliesDisplay"></div>
+                    </div>
+                </div>
+            </div>
+
+            </div><!-- /right-top -->
+
+            <!-- リサイザー -->
+            <div id="resizer" style="position:absolute;left:0;right:0;bottom:240px;height:8px;background:#dee2e6;cursor:row-resize;border-radius:3px;z-index:10;">
+                <div style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);color:#aaa;font-size:12px;line-height:1;pointer-events:none;">⠿</div>
+            </div>
+
+            <!-- 下ペイン: AIチャット -->
+            <div id="right-bottom" style="position:absolute;left:0;right:0;bottom:0;top:calc(100% - 240px);overflow:hidden;">
+            <div class="card" style="height:100%;margin-bottom:0;display:flex;flex-direction:column;overflow:hidden;">
+                <div class="card-header bg-success text-white py-1 d-flex justify-content-between align-items-center" style="flex-shrink:0;">
+                    <span>💬 AIチャット (Bedrock)</span>
+                    <small class="text-white-50">Nova Lite</small>
+                </div>
+                <div class="card-body p-2 d-flex flex-column gap-1" style="flex:1;overflow:hidden;min-height:0;">
+                    <div id="chatMessages" style="flex:1;overflow-y:auto;border:1px solid #dee2e6;border-radius:4px;padding:8px;background:#f8f9fa;min-height:0;">
+                        <div class="chat-message system-message">
+                            <strong>AI:</strong> こんにちは！避難所や物資について何でも聞いてください。
+                        </div>
+                    </div>
+                    <div class="input-group input-group-sm" style="flex-shrink:0;">
+                        <input type="text" class="form-control" id="chatInput" placeholder="質問を入力（Enterで送信）" onkeypress="if(event.key==='Enter') sendChatMessage()">
+                        <button class="btn btn-success" id="chatSendBtn" onclick="sendChatMessage()">送信</button>
+                    </div>
+                    <div style="flex-shrink:0;">
+                        <button class="btn btn-sm btn-outline-secondary me-1" onclick="setChatInput('満員の避難所は？')">満員</button>
+                        <button class="btn btn-sm btn-outline-secondary me-1" onclick="setChatInput('使用率が高い順に表示して')">使用率順</button>
+                        <button class="btn btn-sm btn-outline-secondary me-1" onclick="setChatInput('水の在庫が少ない避難所は？')">水不足</button>
+                        <button class="btn btn-sm btn-outline-secondary" onclick="setChatInput('全体の状況をまとめて')">全体状況</button>
+                    </div>
+                </div>
+            </div><!-- /card chat -->
+
+            </div><!-- /right-bottom -->
+
+        </div>
+    </div>
+</div>
+
+<script>
+    // 認証ガード
+    (function() {
+        const session = sessionStorage.getItem('shelter_user');
+        if (!session) { location.href = '/login.html'; return; }
+        const user = JSON.parse(session);
+        if (user.role !== 'admin') { location.href = '/login.html'; }
+        // ナビバーにユーザー名表示
+        document.addEventListener('DOMContentLoaded', () => {
+            const brand = document.querySelector('.navbar-brand');
+            if (brand) brand.innerHTML += ` <small class="text-white-50 fs-6">（${user.name}）</small>`;
+        });
+    })();
+</script>
+<script>
+    const API_URL = 'https://uwvjbs5hpe.execute-api.ap-northeast-3.amazonaws.com/test2/items';
+    const SUPPLIES_API_URL = 'https://uwvjbs5hpe.execute-api.ap-northeast-3.amazonaws.com/test2/supplies';
+    const CHAT_API_URL = 'https://uwvjbs5hpe.execute-api.ap-northeast-3.amazonaws.com/test2/chat';
+    const REQUESTS_API_URL = 'https://uwvjbs5hpe.execute-api.ap-northeast-3.amazonaws.com/test2/requests';
+
+    // 物資カテゴリごとの品目リスト（supplies.htmlの編集機能で使用）
+    const supplyCategories = {
+        water_food: ['水（500ml）', '水（2L）', 'お茶（500ml）', 'お茶（2L）', 'スポーツドリンク（500ml）', 'スポーツドリンク（2L）', 'アルファ化米', 'パックご飯', '弁当', '缶詰', 'レトルト食品', 'おかゆ'],
+        tableware: ['紙皿', '紙ボウル', '紙コップ', '割りばし', 'スプーン', 'フォーク'],
+        clothing: ['防寒着', 'カイロ', 'シャツ', '靴下', 'おむつ（大人用）', 'おむつ（子供用）'],
+        bedding: ['段ボールベッド', '間仕切り', '布団', '毛布', '枕'],
+        sanitary: ['シャンプー', 'ボディソープ', '携帯トイレ', '簡易洗濯袋', 'トイレットペーパー'],
+        hygiene: ['歯ブラシ', 'うがい薬', 'マスク', '生理用品', '洗剤', '消毒液', 'ティッシュ'],
+        work: ['長靴', '軍手', 'ロープ', 'ブルーシート', '土のう袋'],
+        other: ['仮設トイレ', '衛星通信装置', '燃料（ガソリン）', '燃料（灯油）', '懐中電灯', '電池（単3）', '電池（単4）']
+    };
+
+    // 品目ごとの在庫少閾値を計算する関数
+    // n = 現在の避難者数（occupancy）
+    // 3日分以下になったら警告
+    function getLowStockThreshold(itemName, occupancy) {
+        const n = occupancy || 0;
+        const thresholds = {
+            // 水・食料（1日分 × 3日）
+            '水（500ml）':          n * 3 * 3,   // 1日3本×3日
+            '水（2L）':             n * 0.75 * 3, // 1日0.75本×3日（3L/日÷4L）
+            'お茶（500ml）':        n * 3 * 3,
+            'お茶（2L）':           n * 0.75 * 3,
+            'スポーツドリンク（500ml）': n * 3 * 3,
+            'スポーツドリンク（2L）':    n * 0.75 * 3,
+            'アルファ化米':         n * 3 * 3,   // 1日3食×3日
+            'パックご飯':           n * 3 * 3,
+            '弁当':                 n * 3 * 3,
+            '缶詰':                 n * 3 * 3,
+            'レトルト食品':         n * 3 * 3,
+            'おかゆ':               n * 3 * 3,
+            // 食器類（1日3個×3日）
+            '紙皿':                 n * 3 * 3,
+            '紙ボウル':             n * 3 * 3,
+            '紙コップ':             n * 3 * 3,
+            '割りばし':             n * 3 * 3,
+            'スプーン':             n * 3 * 3,
+            'フォーク':             n * 3 * 3,
+            // 衣類・防寒（カイロ: 1日3個×3日、おむつは3日分）
+            'カイロ':               n * 3 * 3,
+            'おむつ（大人用）':     n * 5 * 3,   // 1日5枚×3日（15〜18の中間）
+            'おむつ（子供用）':     n * 7 * 3,   // 1日7枚×3日（18〜24の中間）
+            // 風呂・トイレ・洗濯
+            '携帯トイレ':           n * 5 * 3,   // 1日5回×3日
+            'トイレットペーパー':   n * 8.25 * 3, // 1日8.25m×3日（7.5〜9の中間）
+            // 衛生用品
+            '歯ブラシ':             n * 1,        // 消耗品ではないので人数分
+            'マスク':               n * 3 * 3,   // 1日3枚×3日（3〜9の中間）
+            '生理用品':             n * 5.5 * 3, // 1日5.5枚×3日（15〜18の中間÷3）
+            'ティッシュ':           n * 1,        // 1人1箱
+        };
+        // 定義がない品目は固定値10をデフォルトに
+        return thresholds[itemName] !== undefined ? thresholds[itemName] : 10;
+    }
+
+    // 避難所IDから現在の収容人数を取得
+    function getOccupancy(shelterId) {
+        const shelter = sheltersData.find(s => s.shelterID === shelterId);
+        return shelter ? (shelter.current_occupancy || 0) : 0;
+    }
+
+    let map;
+    let markers = [];
+    let sheltersData = []; // 避難所データを保持
+    let currentSortColumn = 'id'; // 現在のソート列
+    let currentSortOrder = 'asc'; // 現在のソート順序（asc: 昇順, desc: 降順）
+    let hazardLayer = null; // ハザードマップレイヤー
+    let boundaryLayer = null; // 行政区域境界レイヤー
+    let shelterMarkers = {}; // 避難所IDとマーカーのマッピング
+
+    // 地図の高さをウィンドウに合わせて調整
+    function resizeMap() {
+        const mapWrapper = document.querySelector('.map-wrapper');
+        if (!mapWrapper) return;
+        const navH = document.querySelector('nav').offsetHeight;
+        const mgmtCard = document.querySelector('.col-lg-5 .card:last-child');
+        const mgmtH = mgmtCard ? mgmtCard.offsetHeight : 60;
+        const padding = 24;
+        const mapH = window.innerHeight - navH - mgmtH - padding;
+        mapWrapper.style.height = Math.max(mapH, 200) + 'px';
+        if (map) map.invalidateSize();
+    }
+
+    // 地図を初期化（デフォルト位置: 和歌山県湯浅町）
+    function initMap() {
+        // 和歌山県湯浅町の座標
+        map = L.map('map').setView([34.0047, 135.1847], 13);
+        
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(map);
+        
+        // 市区町村境界を初期表示
+        loadBoundaries();
+        
+        // 初期リサイズ
+        setTimeout(resizeMap, 100);
+    }
+    
+    window.addEventListener('resize', resizeMap);
+
+    // 市区町村境界を読み込む
+    async function loadBoundaries() {
+        try {
+            console.log('市区町村境界データを読み込み中...');
+            
+            // 国土地理院の行政区域ベクトルタイルを使用（より確実）
+            // 和歌山県湯浅町周辺の境界を手動で定義（簡易版）
+            const wakayamaBoundaries = {
+                type: 'FeatureCollection',
+                features: [
+                    {
+                        type: 'Feature',
+                        properties: { name: '湯浅町' },
+                        geometry: {
+                            type: 'Polygon',
+                            coordinates: [[
+                                [135.16, 34.02],
+                                [135.21, 34.02],
+                                [135.21, 33.99],
+                                [135.16, 33.99],
+                                [135.16, 34.02]
+                            ]]
+                        }
+                    },
+                    {
+                        type: 'Feature',
+                        properties: { name: '広川町' },
+                        geometry: {
+                            type: 'Polygon',
+                            coordinates: [[
+                                [135.14, 34.02],
+                                [135.16, 34.02],
+                                [135.16, 33.99],
+                                [135.14, 33.99],
+                                [135.14, 34.02]
+                            ]]
+                        }
+                    },
+                    {
+                        type: 'Feature',
+                        properties: { name: '有田市' },
+                        geometry: {
+                            type: 'Polygon',
+                            coordinates: [[
+                                [135.10, 34.05],
+                                [135.16, 34.05],
+                                [135.16, 34.02],
+                                [135.10, 34.02],
+                                [135.10, 34.05]
+                            ]]
+                        }
+                    }
+                ]
+            };
+            
+            // 境界レイヤーを作成
+            boundaryLayer = L.geoJSON(wakayamaBoundaries, {
+                style: {
+                    color: '#2563eb',
+                    weight: 3,
+                    opacity: 0.8,
+                    fillColor: 'transparent',
+                    fillOpacity: 0,
+                    dashArray: '5, 5'
+                },
+                onEachFeature: function(feature, layer) {
+                    const cityName = feature.properties.name || '不明';
+                    
+                    // ポップアップを追加
+                    layer.bindPopup(`<strong>${cityName}</strong>`, {
+                        closeButton: false
+                    });
+                    
+                    // ツールチップを追加
+                    layer.bindTooltip(cityName, {
+                        permanent: false,
+                        direction: 'center',
+                        className: 'boundary-label'
+                    });
+                    
+                    // ホバー時のスタイル変更
+                    layer.on('mouseover', function() {
+                        layer.setStyle({
+                            weight: 4,
+                            color: '#1e40af',
+                            fillOpacity: 0.15,
+                            fillColor: '#3b82f6'
+                        });
+                        layer.openTooltip();
+                    });
+                    
+                    layer.on('mouseout', function() {
+                        layer.setStyle({
+                            weight: 3,
+                            color: '#2563eb',
+                            fillOpacity: 0
+                        });
+                    });
+                }
+            }).addTo(map);
+            
+            console.log('市区町村境界を表示しました（簡易版）');
+            
+            // バックグラウンドで詳細データを取得
+            loadDetailedBoundaries();
+            
+        } catch (e) {
+            console.error('境界データの読み込みに失敗しました:', e);
+            alert('市区町村境界の表示に失敗しました。コンソールを確認してください。');
+        }
+    }
+
+    // 詳細な境界データを読み込む（バックグラウンド）
+    async function loadDetailedBoundaries() {
+        try {
+            console.log('詳細な境界データを取得中...');
+            
+            // Overpass API（OpenStreetMapのデータ）を使用して和歌山県の境界を取得
+            const query = `
+                [out:json][timeout:25];
+                area["ISO3166-2"="JP-30"]->.searchArea;
+                (
+                  relation["boundary"="administrative"]["admin_level"="7"](area.searchArea);
+                );
+                out geom;
+            `;
+            
+            const response = await fetch('https://overpass-api.de/api/interpreter', {
+                method: 'POST',
+                body: 'data=' + encodeURIComponent(query)
+            });
+            
+            if (!response.ok) {
+                throw new Error('Overpass API request failed');
+            }
+            
+            const data = await response.json();
+            console.log('Overpass APIからのデータ:', data);
+            
+            if (data.elements && data.elements.length > 0) {
+                // 既存の簡易境界を削除
+                if (boundaryLayer) {
+                    map.removeLayer(boundaryLayer);
+                }
+                
+                // 詳細な境界を表示
+                const features = data.elements.map(element => {
+                    if (element.type === 'relation' && element.members) {
+                        // GeoJSON形式に変換（簡易版）
+                        const coords = [];
+                        element.members.forEach(member => {
+                            if (member.geometry) {
+                                member.geometry.forEach(point => {
+                                    coords.push([point.lon, point.lat]);
+                                });
+                            }
+                        });
+                        
+                        return {
+                            type: 'Feature',
+                            properties: { name: element.tags.name || '不明' },
+                            geometry: {
+                                type: 'Polygon',
+                                coordinates: [coords]
+                            }
+                        };
+                    }
+                    return null;
+                }).filter(f => f !== null);
+                
+                if (features.length > 0) {
+                    const geojson = {
+                        type: 'FeatureCollection',
+                        features: features
+                    };
+                    
+                    boundaryLayer = L.geoJSON(geojson, {
+                        style: {
+                            color: '#2563eb',
+                            weight: 3,
+                            opacity: 0.8,
+                            fillColor: 'transparent',
+                            fillOpacity: 0,
+                            dashArray: '5, 5'
+                        },
+                        onEachFeature: function(feature, layer) {
+                            const cityName = feature.properties.name || '不明';
+                            layer.bindTooltip(cityName, {
+                                permanent: false,
+                                direction: 'center',
+                                className: 'boundary-label'
+                            });
+                            
+                            layer.on('mouseover', function() {
+                                layer.setStyle({
+                                    weight: 4,
+                                    color: '#1e40af',
+                                    fillOpacity: 0.15,
+                                    fillColor: '#3b82f6'
+                                });
+                            });
+                            
+                            layer.on('mouseout', function() {
+                                layer.setStyle({
+                                    weight: 3,
+                                    color: '#2563eb',
+                                    fillOpacity: 0
+                                });
+                            });
+                        }
+                    }).addTo(map);
+                    
+                    console.log('詳細な市区町村境界を表示しました');
+                }
+            }
+        } catch (e) {
+            console.warn('詳細な境界データの取得に失敗しました（簡易版を使用）:', e);
+        }
+    }
+
+    // 市区町村境界の表示/非表示を切り替え
+    function toggleBoundary() {
+        const isChecked = document.getElementById('boundaryToggle').checked;
+        
+        if (isChecked) {
+            if (boundaryLayer) {
+                boundaryLayer.addTo(map);
+            } else {
+                loadBoundaries();
+            }
+        } else {
+            if (boundaryLayer) {
+                map.removeLayer(boundaryLayer);
+            }
+        }
+    }
+
+    // ハザードマップの表示/非表示を切り替え
+    function toggleHazardMap() {
+        const isChecked = document.getElementById('hazardToggle').checked;
+        const legend = document.getElementById('hazardLegend');
+        
+        if (isChecked) {
+            if (!hazardLayer) {
+                // 国土地理院の津波浸水想定レイヤーを追加
+                // 和歌山県の津波浸水想定区域（L2: 最大クラス）
+                hazardLayer = L.tileLayer('https://disaportaldata.gsi.go.jp/raster/04_tsunami_newlegend_data/{z}/{x}/{y}.png', {
+                    attribution: '津波浸水想定: <a href="https://disaportal.gsi.go.jp/" target="_blank">国土地理院</a>',
+                    opacity: 0.6,
+                    maxZoom: 17
+                });
+            }
+            hazardLayer.addTo(map);
+            legend.style.display = 'block';
+        } else {
+            if (hazardLayer) {
+                map.removeLayer(hazardLayer);
+            }
+            legend.style.display = 'none';
+        }
+    }
+
+    function updateMapMarkers(shelters) {
+        // 既存のマーカーをクリア
+        markers.forEach(marker => map.removeLayer(marker));
+        markers = [];
+        shelterMarkers = {}; // マッピングもクリア
+
+        let hasValidLocation = false;
+        let bounds = [];
+
+        shelters.forEach(shelter => {
+            if (shelter.latitude && shelter.longitude) {
+                hasValidLocation = true;
+                
+                // ステータスに応じてアイコンの色を変更
+                let iconColor = '#28a745'; // 緑 (OPEN)
+                let iconEmoji = '🏫';
+                
+                if (shelter.status === 'FULL') {
+                    iconColor = '#dc3545'; // 赤
+                    iconEmoji = '🏫';
+                }
+                if (shelter.status === 'CLOSED') {
+                    iconColor = '#6c757d'; // グレー
+                    iconEmoji = '🚫';
+                }
+
+                // Font Awesomeスタイルのアイコン（絵文字版）
+                const icon = L.divIcon({
+                    className: 'custom-shelter-marker',
+                    html: `
+                        <div style="position: relative; text-align: center;">
+                            <div style="
+                                background-color: ${iconColor};
+                                width: 40px;
+                                height: 40px;
+                                border-radius: 50% 50% 50% 0;
+                                transform: rotate(-45deg);
+                                border: 3px solid white;
+                                box-shadow: 0 3px 8px rgba(0,0,0,0.4);
+                                display: flex;
+                                align-items: center;
+                                justify-content: center;
+                            ">
+                                <span style="
+                                    transform: rotate(45deg);
+                                    font-size: 20px;
+                                ">${iconEmoji}</span>
+                            </div>
+                        </div>
+                    `,
+                    iconSize: [40, 40],
+                    iconAnchor: [20, 40],
+                    popupAnchor: [0, -40]
+                });
+
+                // 種別と段階の表示
+                const shelterTypeLabel = shelter.shelter_type === 'designated' ? '指定避難所' : '自主避難所';
+                let phaseLabel = '1次（緊急避難）';
+                if (shelter.shelter_phase === 'secondary_short') phaseLabel = '1.5次（短期滞在）';
+                if (shelter.shelter_phase === 'secondary') phaseLabel = '2次（長期滞在）';
+
+                const marker = L.marker([shelter.latitude, shelter.longitude], { icon })
+                    .addTo(map)
+                    .bindPopup(`
+                        <div style="min-width: 200px;">
+                            <strong style="font-size: 16px;">${shelter.shelterName}</strong><br>
+                            <hr style="margin: 5px 0;">
+                            <strong>ID:</strong> ${shelter.shelterID}<br>
+                            ${shelter.address ? `<strong>住所:</strong> ${shelter.address}<br>` : ''}
+                            ${shelter.phone_number ? `<strong>電話:</strong> <a href="tel:${shelter.phone_number}">${shelter.phone_number}</a><br>` : ''}
+                            ${shelter.staff && shelter.staff.length > 0 ? `<strong>担当:</strong> ${shelter.staff.map(s => s.name).join(', ')}<br>` : ''}
+                            <strong>種別:</strong> ${shelterTypeLabel}<br>
+                            <strong>段階:</strong> ${phaseLabel}<br>
+                            <strong>収容人数:</strong> ${shelter.capacity}人<br>
+                            <strong>現在:</strong> ${shelter.current_occupancy}人<br>
+                            <strong>使用率:</strong> ${Math.round((shelter.current_occupancy / shelter.capacity) * 100)}%<br>
+                            <strong>状態:</strong> <span style="color: ${iconColor}; font-weight: bold;">${shelter.status}</span>
+                        </div>
+                    `);
+
+                markers.push(marker);
+                shelterMarkers[shelter.shelterID] = marker; // IDとマーカーをマッピング
+                bounds.push([shelter.latitude, shelter.longitude]);
+            }
+        });
+
+        // 地図の表示範囲を調整
+        if (hasValidLocation && bounds.length > 0) {
+            map.fitBounds(bounds, { padding: [50, 50] });
+        }
+    }
+
+    // 避難所一覧から地図上の避難所に移動
+    function focusOnShelter(shelterId) {
+        const marker = shelterMarkers[shelterId];
+        if (marker) {
+            // 地図を該当避難所に移動
+            map.setView(marker.getLatLng(), 16, {
+                animate: true,
+                duration: 1
+            });
+            
+            // ポップアップを開く
+            marker.openPopup();
+            
+            // 地図までスクロール
+            document.getElementById('map').scrollIntoView({ behavior: 'smooth', block: 'center' });
+        } else {
+            alert('この避難所の位置情報が登録されていません。');
+        }
+    }
+
+    async function fetchShelters() {
+        try {
+            const response = await fetch(API_URL);
+            const data = await response.json();
+            
+            console.log("受け取った生データ:", data);
+
+            // データを保存
+            sheltersData = data;
+            
+            // ソートして表示
+            sortAndDisplayShelters();
+            
+            // 物資登録フォームの避難所プルダウンを更新
+            updateSupplyShelterDropdown(data);
+            
+            // 地図のマーカーを更新
+            updateMapMarkers(data);
+
+            // サマリーカードを更新
+            updateSummaryCards();
+        } catch (e) {
+            console.error(e);
+            alert("データの取得に失敗しました。");
+        }
+    }
+
+    // ソートして表示
+    function sortAndDisplayShelters() {
+        if (!sheltersData || sheltersData.length === 0) {
+            document.getElementById('shelterList').innerHTML = '';
+            return;
+        }
+        
+        // データをコピーしてソート
+        let sortedData = [...sheltersData];
+        
+        if (currentSortColumn === 'id') {
+            // IDでソート（数字部分を考慮）
+            sortedData.sort((a, b) => {
+                const aMatch = (a.shelterID || '').match(/^([a-zA-Z]*)(\d+)$/);
+                const bMatch = (b.shelterID || '').match(/^([a-zA-Z]*)(\d+)$/);
+                
+                if (aMatch && bMatch) {
+                    const aNum = parseInt(aMatch[2], 10);
+                    const bNum = parseInt(bMatch[2], 10);
+                    return currentSortOrder === 'asc' ? aNum - bNum : bNum - aNum;
+                }
+                
+                // フォールバック: 文字列比較
+                return currentSortOrder === 'asc' 
+                    ? (a.shelterID || '').localeCompare(b.shelterID || '')
+                    : (b.shelterID || '').localeCompare(a.shelterID || '');
+            });
+        } else if (currentSortColumn === 'capacity') {
+            // 収容人数でソート
+            sortedData.sort((a, b) => {
+                const diff = (a.capacity || 0) - (b.capacity || 0);
+                return currentSortOrder === 'asc' ? diff : -diff;
+            });
+        } else if (currentSortColumn === 'current') {
+            // 現在数でソート
+            sortedData.sort((a, b) => {
+                const diff = (a.current_occupancy || 0) - (b.current_occupancy || 0);
+                return currentSortOrder === 'asc' ? diff : -diff;
+            });
+        } else if (currentSortColumn === 'rate') {
+            // 使用率でソート
+            sortedData.sort((a, b) => {
+                const rateA = a.capacity > 0 ? (a.current_occupancy / a.capacity) : 0;
+                const rateB = b.capacity > 0 ? (b.current_occupancy / b.capacity) : 0;
+                const diff = rateA - rateB;
+                return currentSortOrder === 'asc' ? diff : -diff;
+            });
+        }
+        
+        // テーブルを更新
+        displaySheltersTable(sortedData);
+        
+        // ソートアイコンを更新
+        updateSortIcons();
+    }
+
+    // テーブルに表示
+    function displaySheltersTable(data) {
+        const list = document.getElementById('shelterList');
+        list.innerHTML = '';
+
+        data.forEach(item => {
+            const occupancyRate = Math.round((item.current_occupancy / item.capacity) * 100) || 0;
+            let statusClass = item.status === 'OPEN' ? 'status-open' : (item.status === 'FULL' ? 'status-full' : 'status-closed');
+            const address = item.address || '-';
+            
+            // 種別の表示
+            const shelterTypeLabel = item.shelter_type === 'designated' ? '指定' : '自主';
+            const shelterTypeBadge = item.shelter_type === 'designated' ? 'bg-primary' : 'bg-info';
+            
+            // 段階の表示
+            let phaseLabel = '1次';
+            if (item.shelter_phase === 'secondary_short') phaseLabel = '1.5次';
+            if (item.shelter_phase === 'secondary') phaseLabel = '2次';
+            const phaseBadge = item.shelter_phase === 'primary' ? 'bg-warning' : 
+                               (item.shelter_phase === 'secondary_short' ? 'bg-secondary' : 'bg-success');
+            
+            // 位置情報があるかチェック
+            const hasLocation = item.latitude && item.longitude;
+            const rowClass = hasLocation ? 'shelter-row-clickable' : '';
+            const rowOnClick = hasLocation ? `onclick="focusOnShelter('${item.shelterID}')"` : '';
+            const locationIcon = hasLocation ? '📍' : '';
+
+            // 電話番号
+            const phone = item.phone_number ? `<a href="tel:${item.phone_number}" onclick="event.stopPropagation();">${item.phone_number}</a>` : '-';
+            
+            // 担当職員
+            let staffHtml = '-';
+            if (item.staff && item.staff.length > 0) {
+                staffHtml = item.staff.map(s => 
+                    `${s.name}${s.phone ? ` <a href="tel:${s.phone}" onclick="event.stopPropagation();" class="text-muted small">(${s.phone})</a>` : ''}`
+                ).join('<br>');
+            }
+
+            list.innerHTML += `
+                <tr class="${rowClass}" ${rowOnClick} style="${hasLocation ? 'cursor: pointer;' : ''}">
+                    <td>${locationIcon} ${item.shelterID}</td>
+                    <td>${item.shelterName}</td>
+                    <td><span class="badge ${shelterTypeBadge}">${shelterTypeLabel}</span></td>
+                    <td><span class="badge ${phaseBadge}">${phaseLabel}</span></td>
+                    <td>${address}</td>
+                    <td>${phone}</td>
+                    <td>${staffHtml}</td>
+                    <td>${item.capacity}</td>
+                    <td>${item.current_occupancy}</td>
+                    <td>
+                        <div class="progress" style="height: 20px;">
+                            <div class="progress-bar ${occupancyRate >= 90 ? 'bg-danger' : 'bg-info'}" role="progressbar" style="width: ${occupancyRate}%">${occupancyRate}%</div>
+                        </div>
+                    </td>
+                    <td><span class="${statusClass}">${item.status}</span></td>
+                    <td onclick="event.stopPropagation();">
+                        <a href="/shelters.html" class="btn btn-sm btn-outline-primary">編集</a>
+                        <button class="btn btn-sm btn-outline-danger" onclick='deleteShelter("${item.shelterID}", "${item.shelterName}")'>削除</button>
+                    </td>
+                </tr>
+            `;
+        });
+    }
+
+    // ソート関数
+    function sortShelters(column) {
+        // 同じ列をクリックした場合は昇順/降順を切り替え
+        if (currentSortColumn === column) {
+            currentSortOrder = currentSortOrder === 'asc' ? 'desc' : 'asc';
+        } else {
+            // 別の列をクリックした場合は昇順から開始
+            currentSortColumn = column;
+            currentSortOrder = 'asc';
+        }
+        
+        sortAndDisplayShelters();
+    }
+
+    // ソートアイコンを更新
+    function updateSortIcons() {
+        // すべてのアイコンをリセット
+        document.getElementById('sort-id-icon').textContent = '↕️';
+        document.getElementById('sort-capacity-icon').textContent = '↕️';
+        document.getElementById('sort-current-icon').textContent = '↕️';
+        document.getElementById('sort-rate-icon').textContent = '↕️';
+        
+        // 現在のソート列のアイコンを更新
+        const icon = currentSortOrder === 'asc' ? '🔼' : '🔽';
+        if (currentSortColumn === 'id') {
+            document.getElementById('sort-id-icon').textContent = icon;
+        } else if (currentSortColumn === 'capacity') {
+            document.getElementById('sort-capacity-icon').textContent = icon;
+        } else if (currentSortColumn === 'current') {
+            document.getElementById('sort-current-icon').textContent = icon;
+        } else if (currentSortColumn === 'rate') {
+            document.getElementById('sort-rate-icon').textContent = icon;
+        }
+    }
+
+    function updateSupplyShelterDropdown(shelters) {
+        // 物資登録フォームはsupplies.htmlに移動済み
+    }
+
+    // サマリーカードを更新
+    function updateSummaryCards() {
+        // 避難所サマリー
+        const openCount = sheltersData.filter(s => s.status === 'OPEN').length;
+        const fullCount = sheltersData.filter(s => s.status === 'FULL').length;
+        const totalOccupancy = sheltersData.reduce((sum, s) => sum + (s.current_occupancy || 0), 0);
+        document.getElementById('summary-open').textContent = openCount + '件';
+        document.getElementById('summary-full').textContent = fullCount + '件';
+        document.getElementById('summary-occupancy').textContent = totalOccupancy.toLocaleString() + '人';
+
+        // 物資不足の避難所数
+        const lowStockShelters = new Set();
+        allSuppliesData.forEach(shelter => {
+            if (shelter.supplies && shelter.supplies.some(s => {
+                const threshold = getLowStockThreshold(s.item_name, getOccupancy(shelter.shelter_id));
+                return s.quantity <= threshold;
+            })) {
+                lowStockShelters.add(shelter.shelter_id);
+            }
+        });
+        document.getElementById('summary-lowstock').textContent = lowStockShelters.size + '箇所';
+    }
+
+    // 位置情報をクリア（削除済みフォームの参照を避けるため空実装）
+    function clearLocation() {}
+
+    async function deleteShelter(shelterId, shelterName) {
+        if (!confirm(`避難所「${shelterName}（${shelterId}）」を削除しますか？\n\n注意: この避難所に関連する物資情報もすべて削除されます。`)) {
+            return;
+        }
+
+        try {
+            const response = await fetch(`${API_URL}?shelterID=${encodeURIComponent(shelterId)}`, {
+                method: 'DELETE'
+            });
+
+            const data = await response.json();
+
+            if (response.ok) {
+                alert(`避難所を削除しました。\n削除された物資: ${data.deleted_supplies_count}件`);
+                fetchShelters();
+                fetchAllSupplies(); // 物資一覧も更新
+            } else {
+                alert(`エラー: ${data.error || '削除に失敗しました'}`);
+            }
+        } catch (e) {
+            console.error(e);
+            alert('削除に失敗しました。');
+        }
+    }
+
+    let allSuppliesData = [];
+
+    async function fetchAllSupplies() {
+        try {
+            const response = await fetch(SUPPLIES_API_URL + '/all');
+            const data = await response.json();
+            
+            console.log("物資データ:", data);
+            allSuppliesData = data.shelters || [];
+            
+            // 避難所フィルタのドロップダウンを更新
+            updateShelterFilter();
+            
+            // 物資一覧を表示
+            displaySupplies(allSuppliesData);
+
+            // サマリーカードを更新
+            updateSummaryCards();
+        } catch (e) {
+            console.error(e);
+            document.getElementById('suppliesDisplay').innerHTML = '<div class="alert alert-danger">物資データの取得に失敗しました。</div>';
+        }
+    }
+
+    // チャット入力を設定
+    function setChatInput(text) {
+        document.getElementById('chatInput').value = text;
+        document.getElementById('chatInput').focus();
+    }
+
+    // チャットメッセージを送信
+    async function sendChatMessage() {
+        const input = document.getElementById('chatInput');
+        const message = input.value.trim();
+        
+        if (!message) return;
+        
+        // ユーザーメッセージを表示
+        addChatMessage(message, 'user');
+        input.value = '';
+        
+        // 送信ボタンを無効化してローディング表示
+        const btn = document.getElementById('chatSendBtn');
+        btn.disabled = true;
+        btn.textContent = '考え中...';
+        
+        // ローディングメッセージを表示
+        const loadingId = addLoadingMessage();
+        
+        try {
+            const response = await fetch(CHAT_API_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ message })
+            });
+            
+            const data = await response.json();
+            
+            // ローディングを削除
+            removeLoadingMessage(loadingId);
+            
+            if (response.ok) {
+                addChatMessage(data.answer, 'system');
+            } else {
+                addChatMessage(`エラー: ${data.error || '応答の取得に失敗しました'}`, 'system');
+            }
+        } catch (e) {
+            console.error(e);
+            removeLoadingMessage(loadingId);
+            addChatMessage('通信エラーが発生しました。しばらくしてから再試行してください。', 'system');
+        } finally {
+            btn.disabled = false;
+            btn.textContent = '送信';
+        }
+    }
+
+    // ローディングメッセージを追加
+    function addLoadingMessage() {
+        const chatMessages = document.getElementById('chatMessages');
+        const id = 'loading-' + Date.now();
+        const div = document.createElement('div');
+        div.id = id;
+        div.className = 'chat-message system-message';
+        div.innerHTML = '<strong>AI:</strong> <span class="loading-dots">考え中<span>.</span><span>.</span><span>.</span></span>';
+        chatMessages.appendChild(div);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+        return id;
+    }
+
+    // ローディングメッセージを削除
+    function removeLoadingMessage(id) {
+        const el = document.getElementById(id);
+        if (el) el.remove();
+    }
+
+    // チャットメッセージを追加
+    function addChatMessage(message, type) {
+        const chatMessages = document.getElementById('chatMessages');
+        const messageDiv = document.createElement('div');
+        messageDiv.className = `chat-message ${type}-message`;
+        
+        // Markdownの表をHTMLに変換（簡易版）
+        const formatted = formatMarkdown(message);
+        
+        if (type === 'user') {
+            messageDiv.innerHTML = `<strong>あなた:</strong> ${message}`;
+        } else {
+            messageDiv.innerHTML = `<strong>AI:</strong> ${formatted}`;
+        }
+        
+        chatMessages.appendChild(messageDiv);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
+    // Markdownを簡易HTMLに変換
+    function formatMarkdown(text) {
+        // テーブルブロックを先に処理
+        text = text.replace(/((?:\|.+\|\n?)+)/g, (block) => {
+            const rows = block.trim().split('\n').filter(r => r.trim());
+            let html = '<div class="table-responsive my-2"><table class="table table-sm table-bordered table-hover mb-0" style="font-size:0.9rem">';
+            let isHeader = true;
+            for (const row of rows) {
+                // 区切り行（|---|---|）はスキップ
+                if (/^\|[\s\-:|]+\|$/.test(row)) { isHeader = false; continue; }
+                const cells = row.split('|').filter((_, i, a) => i > 0 && i < a.length - 1);
+                if (isHeader) {
+                    html += '<thead class="table-dark"><tr>' + cells.map(c => `<th class="px-2 py-1">${c.trim()}</th>`).join('') + '</tr></thead><tbody>';
+                    isHeader = false;
+                } else {
+                    html += '<tr>' + cells.map(c => `<td class="px-2 py-1">${c.trim()}</td>`).join('') + '</tr>';
+                }
+            }
+            html += '</tbody></table></div>';
+            return html;
+        });
+
+        return text
+            .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+            .replace(/\n/g, '<br>');
+    }
+
+    // チャットメッセージを解析
+    function processChatMessage(message) {
+        const lowerMessage = message.toLowerCase();
+        
+        // IDパターンを検出（例: S001, s003, S-001）
+        const idPattern = /[sS]-?(\d{1,4})/g;
+        const idMatches = message.match(idPattern);
+        
+        // 属性キーワードの検出
+        const attrKeywords = {
+            '住所': 'address',
+            '名前': 'shelterName',
+            '名称': 'shelterName',
+            '収容人数': 'capacity',
+            '最大': 'capacity',
+            '現在': 'current_occupancy',
+            '避難者数': 'current_occupancy',
+            '使用率': 'rate',
+            '状態': 'status',
+            '種別': 'shelter_type',
+            '段階': 'shelter_phase',
+            '緯度': 'latitude',
+            '経度': 'longitude',
+            '位置': 'location',
+            '場所': 'location'
+        };
+        
+        // 特定IDへの質問（例: 「s003の住所を教えて」）
+        if (idMatches && idMatches.length > 0) {
+            const targetId = idMatches[0].replace('-', '').toUpperCase();
+            const shelter = sheltersData.find(s => s.shelterID.toUpperCase() === targetId);
+            
+            if (!shelter) {
+                addChatMessage(`避難所ID「${targetId}」は見つかりませんでした。`, 'system');
+                return;
+            }
+            
+            // 属性が指定されているか確認
+            let requestedAttr = null;
+            for (const [keyword, attr] of Object.entries(attrKeywords)) {
+                if (lowerMessage.includes(keyword)) {
+                    requestedAttr = attr;
+                    break;
+                }
+            }
+            
+            if (requestedAttr) {
+                // 特定の属性を返す
+                displayShelterAttribute(shelter, requestedAttr);
+            } else {
+                // 全情報を返す
+                displayChatShelterResults([shelter], `${targetId}の情報`);
+            }
+            return;
+        }
+        
+        // 避難所データの検索
+        if (lowerMessage.includes('避難所') || lowerMessage.includes('開設') || lowerMessage.includes('満員') || 
+            lowerMessage.includes('閉鎖') || lowerMessage.includes('使用率') || lowerMessage.includes('指定') || 
+            lowerMessage.includes('自主') || lowerMessage.includes('1次') || lowerMessage.includes('2次') ||
+            lowerMessage.includes('収容') || lowerMessage.includes('何件') || lowerMessage.includes('いくつ')) {
+            
+            let results = [...sheltersData];
+            let responseText = '';
+            
+            // ステータスでフィルタ
+            if (lowerMessage.includes('満員') || lowerMessage.includes('full')) {
+                results = results.filter(s => s.status === 'FULL');
+                responseText = '満員の避難所';
+            } else if (lowerMessage.includes('開設') || lowerMessage.includes('open')) {
+                results = results.filter(s => s.status === 'OPEN');
+                responseText = '開設中の避難所';
+            } else if (lowerMessage.includes('閉鎖') || lowerMessage.includes('closed')) {
+                results = results.filter(s => s.status === 'CLOSED');
+                responseText = '閉鎖中の避難所';
+            }
+            
+            // 種別でフィルタ
+            if (lowerMessage.includes('指定')) {
+                results = results.filter(s => s.shelter_type === 'designated');
+                responseText = (responseText ? responseText + 'の中で' : '') + '指定避難所';
+            } else if (lowerMessage.includes('自主')) {
+                results = results.filter(s => s.shelter_type === 'voluntary');
+                responseText = (responseText ? responseText + 'の中で' : '') + '自主避難所';
+            }
+            
+            // 段階でフィルタ
+            if (lowerMessage.includes('1.5次')) {
+                results = results.filter(s => s.shelter_phase === 'secondary_short');
+                responseText = (responseText ? responseText + 'の中で' : '') + '1.5次避難所';
+            } else if (lowerMessage.includes('1次')) {
+                results = results.filter(s => s.shelter_phase === 'primary');
+                responseText = (responseText ? responseText + 'の中で' : '') + '1次避難所';
+            } else if (lowerMessage.includes('2次')) {
+                results = results.filter(s => s.shelter_phase === 'secondary');
+                responseText = (responseText ? responseText + 'の中で' : '') + '2次避難所';
+            }
+            
+            // ソート
+            if (lowerMessage.includes('使用率') && (lowerMessage.includes('高い') || lowerMessage.includes('多い') || lowerMessage.includes('順'))) {
+                results.sort((a, b) => {
+                    const rateA = a.capacity > 0 ? (a.current_occupancy / a.capacity) : 0;
+                    const rateB = b.capacity > 0 ? (b.current_occupancy / b.capacity) : 0;
+                    return rateB - rateA;
+                });
+                responseText = (responseText || '避難所') + 'を使用率が高い順';
+            } else if (lowerMessage.includes('使用率') && lowerMessage.includes('低い')) {
+                results.sort((a, b) => {
+                    const rateA = a.capacity > 0 ? (a.current_occupancy / a.capacity) : 0;
+                    const rateB = b.capacity > 0 ? (b.current_occupancy / b.capacity) : 0;
+                    return rateA - rateB;
+                });
+                responseText = (responseText || '避難所') + 'を使用率が低い順';
+            } else if (lowerMessage.includes('収容') && (lowerMessage.includes('多い') || lowerMessage.includes('大きい') || lowerMessage.includes('順'))) {
+                results.sort((a, b) => b.capacity - a.capacity);
+                responseText = (responseText || '避難所') + 'を収容人数が多い順';
+            }
+            
+            // 件数のみ聞いている場合
+            if (lowerMessage.includes('何件') || lowerMessage.includes('いくつ') || lowerMessage.includes('何か所')) {
+                addChatMessage(`${responseText || '避難所'}は現在 <strong>${results.length}件</strong> あります。`, 'system');
+                return;
+            }
+            
+            if (results.length > 0) {
+                displayChatShelterResults(results, responseText || '避難所の検索結果');
+            } else {
+                addChatMessage('該当する避難所が見つかりませんでした。', 'system');
+            }
+        }
+        // 物資データの検索
+        else if (lowerMessage.includes('物資') || lowerMessage.includes('在庫') || lowerMessage.includes('不足') ||
+                 lowerMessage.includes('水') || lowerMessage.includes('食料') || lowerMessage.includes('毛布') ||
+                 lowerMessage.includes('マスク') || lowerMessage.includes('おむつ') || lowerMessage.includes('薬')) {
+            searchSupplies(message);
+        }
+        // ヘルプ
+        else if (lowerMessage.includes('ヘルプ') || lowerMessage.includes('使い方') || lowerMessage.includes('help')) {
+            showChatHelp();
+        }
+        // 不明
+        else {
+            addChatMessage(`質問を理解できませんでした。<br>
+                <strong>使用例:</strong><br>
+                • 「S003の住所を教えて」<br>
+                • 「満員の避難所は何件？」<br>
+                • 「使用率が高い順に表示して」<br>
+                • 「指定避難所の1次を教えて」<br>
+                • 「水の在庫が少ない避難所は？」<br>
+                • 「ヘルプ」と入力すると使い方を表示します`, 'system');
+        }
+    }
+
+    // 特定の属性を表示
+    function displayShelterAttribute(shelter, attr) {
+        const chatMessages = document.getElementById('chatMessages');
+        const resultDiv = document.createElement('div');
+        resultDiv.className = 'chat-message system-message';
+        
+        let value = '';
+        let label = '';
+        
+        switch (attr) {
+            case 'address':
+                label = '住所';
+                value = shelter.address || '未登録';
+                break;
+            case 'shelterName':
+                label = '名称';
+                value = shelter.shelterName;
+                break;
+            case 'capacity':
+                label = '最大収容人数';
+                value = `${shelter.capacity}人`;
+                break;
+            case 'current_occupancy':
+                label = '現在の避難者数';
+                value = `${shelter.current_occupancy}人`;
+                break;
+            case 'rate':
+                const rate = Math.round((shelter.current_occupancy / shelter.capacity) * 100) || 0;
+                label = '使用率';
+                value = `${rate}%`;
+                break;
+            case 'status':
+                label = '状態';
+                value = shelter.status;
+                break;
+            case 'shelter_type':
+                label = '種別';
+                value = shelter.shelter_type === 'designated' ? '指定避難所' : '自主避難所';
+                break;
+            case 'shelter_phase':
+                label = '段階';
+                const phases = { primary: '1次（緊急避難）', secondary_short: '1.5次（短期滞在）', secondary: '2次（長期滞在）' };
+                value = phases[shelter.shelter_phase] || '未設定';
+                break;
+            case 'location':
+            case 'latitude':
+            case 'longitude':
+                label = '位置情報';
+                value = shelter.latitude && shelter.longitude 
+                    ? `緯度: ${shelter.latitude}, 経度: ${shelter.longitude}` 
+                    : '未登録';
+                break;
+        }
+        
+        resultDiv.innerHTML = `<strong>システム:</strong> 
+            <div class="chat-result">
+                <strong>${shelter.shelterName}（${shelter.shelterID}）</strong><br>
+                ${label}: <strong>${value}</strong>
+            </div>`;
+        
+        chatMessages.appendChild(resultDiv);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+        
+        // 位置情報がある場合は地図に移動
+        if (shelter.latitude && shelter.longitude) {
+            focusOnShelter(shelter.shelterID);
+        }
+    }
+
+    // ヘルプを表示
+    function showChatHelp() {
+        addChatMessage(`
+            <strong>チャット検索の使い方:</strong><br>
+            <div class="chat-result">
+                <strong>避難所の検索:</strong><br>
+                • 「S003の情報を教えて」<br>
+                • 「S003の住所は？」<br>
+                • 「S003の収容人数は？」<br>
+                • 「満員の避難所は？」<br>
+                • 「開設中の避難所は何件？」<br>
+                • 「指定避難所の1次を教えて」<br>
+                • 「使用率が高い順に表示して」<br>
+                • 「収容人数が多い順に表示して」<br>
+                <br>
+                <strong>物資の検索:</strong><br>
+                • 「水の在庫が少ない避難所は？」<br>
+                • 「毛布の在庫を教えて」<br>
+                • 「物資が不足している避難所は？」<br>
+            </div>
+        `, 'system');
+    }
+
+    // 避難所検索結果を表示
+    function displayChatShelterResults(results, title) {
+        const chatMessages = document.getElementById('chatMessages');
+        const resultDiv = document.createElement('div');
+        resultDiv.className = 'chat-message system-message';
+        
+        let html = `<strong>システム:</strong> ${title}を表示します（${results.length}件）<div class="chat-result">`;
+        
+        results.slice(0, 10).forEach(shelter => {
+            const rate = Math.round((shelter.current_occupancy / shelter.capacity) * 100) || 0;
+            const typeLabel = shelter.shelter_type === 'designated' ? '指定' : '自主';
+            let phaseLabel = '1次';
+            if (shelter.shelter_phase === 'secondary_short') phaseLabel = '1.5次';
+            if (shelter.shelter_phase === 'secondary') phaseLabel = '2次';
+            
+            html += `
+                <div style="border-bottom: 1px solid #ccc; padding: 5px 0; cursor: pointer;" onclick="focusOnShelter('${shelter.shelterID}')">
+                    <strong>${shelter.shelterName}</strong> (${shelter.shelterID})<br>
+                    <small>
+                        種別: ${typeLabel} | 段階: ${phaseLabel} | 
+                        状態: ${shelter.status} | 
+                        使用率: ${rate}% (${shelter.current_occupancy}/${shelter.capacity}人)
+                    </small>
+                </div>
+            `;
+        });
+        
+        if (results.length > 10) {
+            html += `<small class="text-muted">...他${results.length - 10}件</small>`;
+        }
+        
+        html += '</div>';
+        resultDiv.innerHTML = html;
+        chatMessages.appendChild(resultDiv);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
+    // 物資を検索
+    function searchSupplies(message) {
+        const lowerMessage = message.toLowerCase();
+        let matchedSupplies = [];
+        
+        // 物資品目を抽出
+        let searchItem = '';
+        if (lowerMessage.includes('水')) searchItem = '水';
+        else if (lowerMessage.includes('食料') || lowerMessage.includes('ご飯') || lowerMessage.includes('米')) searchItem = '食料';
+        else if (lowerMessage.includes('毛布')) searchItem = '毛布';
+        else if (lowerMessage.includes('マスク')) searchItem = 'マスク';
+        
+        // 全避難所の物資を検索
+        allSuppliesData.forEach(shelter => {
+            if (shelter.supplies) {
+                shelter.supplies.forEach(supply => {
+                    if (!searchItem || supply.item_name.includes(searchItem)) {
+                        matchedSupplies.push({
+                            shelter_id: shelter.shelter_id,
+                            item_name: supply.item_name,
+                            quantity: supply.quantity
+                        });
+                    }
+                });
+            }
+        });
+        
+        // 在庫が少ない順にソート
+        if (lowerMessage.includes('少ない') || lowerMessage.includes('不足')) {
+            matchedSupplies.sort((a, b) => a.quantity - b.quantity);
+        }
+        
+        // 結果を表示
+        if (matchedSupplies.length > 0) {
+            displayChatSupplyResults(matchedSupplies, searchItem || '物資');
+        } else {
+            addChatMessage('該当する物資が見つかりませんでした。', 'system');
+        }
+    }
+
+    // 物資検索結果を表示
+    function displayChatSupplyResults(results, itemName) {
+        const chatMessages = document.getElementById('chatMessages');
+        const resultDiv = document.createElement('div');
+        resultDiv.className = 'chat-message system-message';
+        
+        let html = `<strong>システム:</strong> ${itemName}の検索結果（${results.length}件）<div class="chat-result">`;
+        
+        results.slice(0, 10).forEach(supply => {
+            const warningIcon = supply.quantity === 0 ? '❌' : (supply.quantity <= 10 ? '⚠️' : '');
+            html += `
+                <div style="border-bottom: 1px solid #ccc; padding: 5px 0;">
+                    ${warningIcon} <strong>${supply.item_name}</strong><br>
+                    <small>避難所: ${supply.shelter_id} | 在庫: ${supply.quantity}個</small>
+                </div>
+            `;
+        });
+        
+        if (results.length > 10) {
+            html += `<small class="text-muted">...他${results.length - 10}件</small>`;
+        }
+        
+        html += '</div>';
+        resultDiv.innerHTML = html;
+        chatMessages.appendChild(resultDiv);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
+    function updateShelterFilter() {
+        const filterSelect = document.getElementById('shelter_filter');
+        const currentValue = filterSelect.value;
+        
+        // オプションをクリア（最初の「すべて」以外）
+        filterSelect.innerHTML = '<option value="">すべての避難所</option>';
+        
+        // 避難所IDを追加
+        const shelterIds = [...new Set(allSuppliesData.map(s => s.shelter_id))];
+        shelterIds.forEach(id => {
+            const option = document.createElement('option');
+            option.value = id;
+            option.textContent = id;
+            if (id === currentValue) {
+                option.selected = true;
+            }
+            filterSelect.appendChild(option);
+        });
+    }
+
+    function applyFilters() {
+        const selectedShelterId = document.getElementById('shelter_filter').value;
+        const searchText = document.getElementById('item_search').value.toLowerCase();
+        const showLowStock = document.getElementById('show_low_stock').checked;
+        
+        let filtered = allSuppliesData;
+        
+        // 避難所でフィルタ
+        if (selectedShelterId !== '') {
+            filtered = filtered.filter(s => s.shelter_id === selectedShelterId);
+        }
+        
+        // 物資品目で検索
+        if (searchText !== '') {
+            filtered = filtered.map(shelter => ({
+                ...shelter,
+                supplies: shelter.supplies.filter(supply => 
+                    supply.item_name.toLowerCase().includes(searchText)
+                )
+            })).filter(shelter => shelter.supplies.length > 0);
+        }
+        
+        // 在庫が少ない物資のみ表示
+        if (showLowStock) {
+            filtered = filtered.map(shelter => ({
+                ...shelter,
+                supplies: shelter.supplies.filter(supply => {
+                    const threshold = getLowStockThreshold(supply.item_name, getOccupancy(shelter.shelter_id));
+                    return supply.quantity <= threshold;
+                })
+            })).filter(shelter => shelter.supplies.length > 0);
+        }
+        
+        displaySupplies(filtered);
+    }
+
+    function filterSuppliesByShelter() {
+        applyFilters();
+    }
+
+    function displaySupplies(sheltersData) {
+        const displayDiv = document.getElementById('suppliesDisplay');
+        
+        if (!sheltersData || sheltersData.length === 0) {
+            displayDiv.innerHTML = '<div class="alert alert-info">物資情報がありません。</div>';
+            return;
+        }
+        
+        let html = '';
+        
+        sheltersData.forEach(shelter => {
+            html += `
+                <div class="mb-4">
+                    <h5 class="text-primary">避難所: ${shelter.shelter_id}</h5>
+                    <table class="table table-sm table-bordered">
+                        <thead class="table-light">
+                            <tr>
+                                <th>物資品目</th>
+                                <th>数量</th>
+                                <th>最終更新</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+            `;
+            
+            if (shelter.supplies && shelter.supplies.length > 0) {
+                shelter.supplies.forEach(supply => {
+                    const updatedAt = supply.updated_at ? new Date(supply.updated_at).toLocaleString('ja-JP') : '-';
+                    const isOutOfStock = supply.quantity === 0;
+                    const threshold = getLowStockThreshold(supply.item_name, getOccupancy(shelter.shelter_id));
+                    const isLowStock = !isOutOfStock && supply.quantity <= threshold;
+                    const shortage = Math.ceil(threshold - supply.quantity);
+                    
+                    // ツールチップテキスト
+                    let tooltipText = `3日分の目安: ${Math.ceil(threshold)}`;
+                    if (isOutOfStock) {
+                        tooltipText += ` | あと ${shortage} 必要`;
+                    } else if (isLowStock) {
+                        tooltipText += ` | あと ${shortage} 追加で3日分に到達`;
+                    } else {
+                        tooltipText += ` | 3日分を充足しています`;
+                    }
+
+                    let rowClass = '';
+                    let quantityDisplay = `<span data-bs-toggle="tooltip" title="${tooltipText}">${supply.quantity}</span>`;
+                    
+                    if (isOutOfStock) {
+                        rowClass = 'table-danger';
+                        quantityDisplay = `<span class="badge bg-danger" data-bs-toggle="tooltip" title="${tooltipText}">${supply.quantity} ❌ 在庫なし</span>`;
+                    } else if (isLowStock) {
+                        rowClass = 'table-warning';
+                        quantityDisplay = `<span class="badge bg-warning text-dark" data-bs-toggle="tooltip" title="${tooltipText}">${supply.quantity} ⚠️ 在庫少</span>`;
+                    }
+                    
+                    html += `
+                        <tr class="${rowClass}">
+                            <td>${supply.item_name}</td>
+                            <td>${quantityDisplay}</td>
+                            <td>${updatedAt}</td>
+                            <td>
+                                <a href="/supplies.html" class="btn btn-sm btn-outline-primary">編集</a>
+                                <button class="btn btn-sm btn-outline-danger" onclick='deleteSupply("${shelter.shelter_id}", "${supply.item_name}")'>削除</button>
+                            </td>
+                        </tr>
+                    `;
+                });
+            } else {
+                html += '<tr><td colspan="4" class="text-center">物資情報なし</td></tr>';
+            }
+            
+            html += `
+                        </tbody>
+                    </table>
+                </div>
+            `;
+        });
+        
+        displayDiv.innerHTML = html;
+
+        // Bootstrapのツールチップを初期化
+        displayDiv.querySelectorAll('[data-bs-toggle="tooltip"]').forEach(el => {
+            new bootstrap.Tooltip(el);
+        });
+    }
+
+    // 物資補充要請関連
+    async function fetchRequests() {
+        const statusFilter = document.getElementById('request_status_filter').value;
+        let url = REQUESTS_API_URL;
+        if (statusFilter) url += `?status=${encodeURIComponent(statusFilter)}`;
+
+        try {
+            const response = await fetch(url);
+            const data = await response.json();
+            const requests = data.requests || [];
+
+            // pendingカウントを更新
+            const pendingCount = requests.filter(r => r.status === 'pending').length;
+            const badge = document.getElementById('pending-count');
+            if (pendingCount > 0) {
+                badge.textContent = `承認待ち ${pendingCount}件`;
+                badge.style.removeProperty('display');
+            } else {
+                badge.style.setProperty('display', 'none', 'important');
+            }
+
+            displayRequests(requests);
+        } catch (e) {
+            console.error(e);
+            document.getElementById('requestsList').innerHTML =
+                '<tr><td colspan="7" class="text-center text-danger">要請データの取得に失敗しました</td></tr>';
+        }
+    }
+
+    function displayRequests(requests) {
+        const tbody = document.getElementById('requestsList');
+        if (!requests || requests.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">要請データがありません</td></tr>';
+            return;
+        }
+
+        const urgencyLabel = { high: '<span class="badge bg-danger">🚨 高</span>', medium: '<span class="badge bg-warning text-dark">⚠️ 中</span>', low: '<span class="badge bg-secondary">低</span>' };
+        const statusLabel = { pending: '<span class="badge bg-warning text-dark">承認待ち</span>', approved: '<span class="badge bg-success">承認済み</span>', rejected: '<span class="badge bg-danger">却下</span>', shipped: '<span class="badge bg-info">出荷中</span>', delivered: '<span class="badge bg-primary">受領済み</span>' };
+
+        tbody.innerHTML = requests.map(r => {
+            const createdAt = r.created_at ? new Date(r.created_at).toLocaleString('ja-JP') : '-';
+            const urgencyBadge = urgencyLabel[r.urgency] || r.urgency;
+            const statusBadge = statusLabel[r.status] || r.status;
+            const isUrgent = r.urgency === 'high' ? 'table-danger' : '';
+
+            let actionBtns = '';
+            if (r.status === 'pending') {
+                actionBtns = `
+                    <button class="btn btn-sm btn-success me-1" onclick="updateRequestStatus('${r.request_id}', 'approved')">承認</button>
+                    <button class="btn btn-sm btn-outline-danger" onclick="updateRequestStatus('${r.request_id}', 'rejected')">却下</button>
+                `;
+            }
+
+            return `
+                <tr class="${isUrgent}">
+                    <td>${r.shelter_id}</td>
+                    <td>${r.item_name}</td>
+                    <td>${r.quantity}</td>
+                    <td>${urgencyBadge}</td>
+                    <td>${statusBadge}</td>
+                    <td><small>${createdAt}</small></td>
+                    <td>${actionBtns}</td>
+                </tr>
+            `;
+        }).join('');
+    }
+
+    async function updateRequestStatus(requestId, newStatus) {
+        const msgDiv = document.getElementById('requestsMessage');
+        msgDiv.innerHTML = '';
+        try {
+            const response = await fetch(REQUESTS_API_URL, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ request_id: requestId, status: newStatus })
+            });
+            const data = await response.json();
+            if (response.ok) {
+                const label = newStatus === 'approved' ? '承認' : '却下';
+                msgDiv.innerHTML = `<div class="alert alert-success alert-dismissible">要請を${label}しました。<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>`;
+                fetchRequests();
+            } else {
+                msgDiv.innerHTML = `<div class="alert alert-danger">エラー: ${data.error || '更新に失敗しました'}</div>`;
+            }
+        } catch (e) {
+            console.error(e);
+            msgDiv.innerHTML = '<div class="alert alert-danger">通信エラーが発生しました。</div>';
+        }
+    }
+
+    async function deleteSupply(shelterId, itemName) {
+        if (!confirm(`物資「${itemName}」を削除しますか？`)) {
+            return;
+        }
+
+        try {
+            const response = await fetch(`${SUPPLIES_API_URL}?shelter_id=${encodeURIComponent(shelterId)}&item_name=${encodeURIComponent(itemName)}`, {
+                method: 'DELETE'
+            });
+
+            const data = await response.json();
+
+            if (response.ok) {
+                alert('物資情報を削除しました。');
+                fetchAllSupplies();
+            } else {
+                alert(`エラー: ${data.error || '削除に失敗しました'}`);
+            }
+        } catch (e) {
+            console.error(e);
+            alert('削除に失敗しました。');
+        }
+    }
+
+    // ── リサイザー（上下ペイン分割・absoluteベース） ──
+    let initPaneHeights = null;
+    (function() {
+        const resizer = document.getElementById('resizer');
+        const topPane = document.getElementById('right-top');
+        const bottomPane = document.getElementById('right-bottom');
+        const container = document.getElementById('right-col');
+        if (!resizer || !topPane || !bottomPane || !container) return;
+
+        const RESIZER_H = 8;
+        const SNAP_THRESHOLD = 20;
+        const DEFAULT_BOTTOM_H = 240;
+        let defaultTopH = null;
+
+        function getContainerH() {
+            return container.offsetHeight;
+        }
+
+        function applyTopH(topH) {
+            const total = getContainerH();
+            topH = Math.max(80, Math.min(topH, total - RESIZER_H - 80));
+            const bottomH = total - topH - RESIZER_H;
+
+            topPane.style.bottom = (bottomH + RESIZER_H) + 'px';
+            topPane.style.height = '';  // bottomで制御するのでheightは不要
+            resizer.style.top = '';
+            resizer.style.bottom = bottomH + 'px';
+            bottomPane.style.top = '';
+            bottomPane.style.height = bottomH + 'px';
+        }
+
+        function initHeights() {
+            const total = getContainerH();
+            const topH = total - RESIZER_H - DEFAULT_BOTTOM_H;
+            defaultTopH = topH;
+            applyTopH(topH);
+        }
+
+        initPaneHeights = initHeights;
+
+        let startY, startTopH;
+
+        resizer.addEventListener('mousedown', (e) => {
+            e.preventDefault();
+            startY = e.clientY;
+            startTopH = topPane.offsetHeight;
+            document.body.style.cursor = 'row-resize';
+            document.body.style.userSelect = 'none';
+
+            function onMove(e) {
+                const dy = e.clientY - startY;
+                let newTopH = startTopH + dy;
+
+                if (defaultTopH !== null && Math.abs(newTopH - defaultTopH) < SNAP_THRESHOLD) {
+                    newTopH = defaultTopH;
+                    resizer.style.background = '#6ea8fe';
+                } else {
+                    resizer.style.background = '#dee2e6';
+                }
+
+                applyTopH(newTopH);
+            }
+
+            function onUp() {
+                document.body.style.cursor = '';
+                document.body.style.userSelect = '';
+                resizer.style.background = '#dee2e6';
+                document.removeEventListener('mousemove', onMove);
+                document.removeEventListener('mouseup', onUp);
+            }
+
+            document.addEventListener('mousemove', onMove);
+            document.addEventListener('mouseup', onUp);
+        });
+
+        resizer.addEventListener('dblclick', () => initHeights());
+        window.addEventListener('resize', () => {
+            if (defaultTopH !== null) initHeights();
+        });
+    })();
+
+    window.onload = async function() {
+        initMap();
+        await fetchShelters();
+        await fetchAllSupplies();
+        await fetchRequests();
+        resizeMap();
+        if (initPaneHeights) initPaneHeights();
+    };
+</script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

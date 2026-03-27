@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>中央物流管理者モード — 避難所管理システム</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        body { background-color: #f8f9fa; padding-top: 20px; font-size: 1.05rem; }
+        .table { font-size: 1rem; }
+        .form-control, .form-select { font-size: 1rem; }
+        .btn { font-size: 1rem; }
+        .badge { font-size: 0.9rem; }
+        .card-header { font-size: 1.5rem; font-weight: 700; }
+        .card-body { font-size: 1.2rem; }
+        small, .small { font-size: 0.9rem; }
+        th, td { font-size: 1rem; }
+        .card { margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        #logistics_map { height: 400px; width: 100%; border-radius: 8px; }
+    </style>
+</head>
+<body>
+<div class="container-fluid px-4">
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark mb-4">
+        <div class="container-fluid">
+            <span class="navbar-brand fw-bold">🏠 避難所管理システム</span>
+            <div class="navbar-nav me-auto">
+                <a class="nav-link" href="/index.html" id="nav-index" style="display:none">🏛️ 自治体本部</a>
+                <a class="nav-link" href="/field.html" id="nav-field" style="display:none">📋 現場報告</a>
+                <a class="nav-link active fw-bold" href="/logistics.html">🚚 中央物流</a>
+            </div>
+            <span class="badge bg-dark border border-light fs-6">中央物流管理者モード</span>
+            <button class="btn btn-sm btn-outline-light ms-2" onclick="sessionStorage.removeItem('shelter_user');location.href='/login.html'">ログアウト</button>
+        </div>
+    </nav>
+
+    <h2 class="mb-3">🚚 中央物流管理者モード</h2>
+
+    <div class="row">
+        <!-- 左カラム: 要請一覧 -->
+        <div class="col-lg-7">
+
+            <!-- 要請一覧 -->
+            <div class="card">
+                <div class="card-header bg-warning text-dark d-flex justify-content-between align-items-center">
+                    📋 物資補充要請一覧
+                    <button class="btn btn-sm btn-outline-dark" onclick="fetchRequests()">最新に更新</button>
+                </div>
+                <div class="card-body">
+                    <div class="row mb-2 g-2">
+                        <div class="col-md-5">
+                            <select class="form-select form-select-sm" id="req_status_filter" onchange="fetchRequests()">
+                                <option value="approved" selected>承認済み (approved)</option>
+                                <option value="shipped">出荷中 (shipped)</option>
+                                <option value="delivered">受領済み (delivered)</option>
+                                <option value="">すべて</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <select class="form-select form-select-sm" id="req_urgency_sort" onchange="renderRequests()">
+                                <option value="urgency">緊急度順</option>
+                                <option value="created">作成日時順</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table table-sm table-hover">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>避難所</th>
+                                    <th>物資品目</th>
+                                    <th>数量</th>
+                                    <th>緊急度</th>
+                                    <th>ステータス</th>
+                                    <th>作成日時</th>
+                                    <th>出荷指示</th>
+                                </tr>
+                            </thead>
+                            <tbody id="logistics_requests_body"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 倉庫在庫一覧 -->
+            <div class="card">
+                <div class="card-header bg-secondary text-white d-flex justify-content-between align-items-center">
+                    🏭 倉庫在庫一覧
+                    <button class="btn btn-sm btn-outline-light" onclick="fetchWarehouses()">最新に更新</button>
+                </div>
+                <div class="card-body">
+                    <div id="warehouse_list">
+                        <div class="text-muted text-center py-3">読み込み中...</div>
+                    </div>
+
+                    <!-- 倉庫在庫更新フォーム -->
+                    <hr>
+                    <h6>在庫の追加・更新</h6>
+                    <div class="row g-2">
+                        <div class="col-md-3">
+                            <input type="text" class="form-control form-control-sm" id="wh_id" placeholder="倉庫ID (例: W001)">
+                        </div>
+                        <div class="col-md-3">
+                            <input type="text" class="form-control form-control-sm" id="wh_item" placeholder="物資品目">
+                        </div>
+                        <div class="col-md-2">
+                            <input type="number" class="form-control form-control-sm" id="wh_delta" placeholder="増減量 (例: 500)">
+                        </div>
+                        <div class="col-md-2">
+                            <input type="text" class="form-control form-control-sm" id="wh_name" placeholder="倉庫名">
+                        </div>
+                        <div class="col-md-2">
+                            <button class="btn btn-sm btn-secondary w-100" onclick="updateWarehouse()">更新</button>
+                        </div>
+                    </div>
+                    <div id="warehouse_message" class="mt-2"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 右カラム: 出荷割当パネル + 地図 -->
+        <div class="col-lg-5">
+
+            <!-- 出荷割当パネル -->
+            <div class="card">
+                <div class="card-header bg-primary text-white">🚛 出荷割当パネル</div>
+                <div class="card-body">
+                    <div id="ship_panel_empty" class="text-muted text-center py-3">
+                        要請一覧から「出荷指示」ボタンを押してください
+                    </div>
+                    <div id="ship_panel_form" style="display:none">
+                        <div class="mb-2">
+                            <strong>要請ID:</strong> <span id="ship_request_id" class="text-muted small"></span>
+                        </div>
+                        <div class="mb-2">
+                            <strong>避難所:</strong> <span id="ship_shelter_id"></span>
+                            &nbsp; <strong>物資:</strong> <span id="ship_item_name"></span>
+                            &nbsp; <strong>要請数量:</strong> <span id="ship_quantity"></span>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">出荷元倉庫</label>
+                            <select class="form-select" id="ship_warehouse_id" onchange="showWarehouseStock()">
+                                <option value="">倉庫を選択してください</option>
+                            </select>
+                            <small class="text-muted" id="warehouse_stock_info"></small>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">出荷数量</label>
+                            <input type="number" class="form-control" id="ship_qty" min="1" placeholder="出荷する数量">
+                        </div>
+                        <button class="btn btn-primary w-100" onclick="executeShipment()">出荷指示を実行</button>
+                        <button class="btn btn-outline-secondary w-100 mt-2" onclick="cancelShipPanel()">キャンセル</button>
+                        <div id="ship_message" class="mt-2"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 広域地図 -->
+            <div class="card">
+                <div class="card-header bg-dark text-white">🗺️ 広域地図（逼迫度表示）</div>
+                <div class="card-body">
+                    <div id="logistics_map"></div>
+                    <div class="mt-2">
+                        <small class="text-muted">
+                            <span style="color:#dc3545">●</span> 逼迫度高
+                            <span class="ms-2" style="color:#fd7e14">●</span> 逼迫度中
+                            <span class="ms-2" style="color:#198754">●</span> 逼迫度低
+                        </small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // 認証ガード（logistics: logisticsのみ）
+    (function() {
+        const session = sessionStorage.getItem('shelter_user');
+        if (!session) { location.href = '/login.html'; return; }
+        const user = JSON.parse(session);
+        if (user.role !== 'logistics') { location.href = '/login.html'; }
+        document.addEventListener('DOMContentLoaded', () => {
+            const brand = document.querySelector('.navbar-brand');
+            if (brand) brand.innerHTML += ` <small class="text-white-50 fs-6">（${user.name}）</small>`;
+        });
+    })();
+</script>
+<script>
+    const API_URL = 'https://uwvjbs5hpe.execute-api.ap-northeast-3.amazonaws.com/test2/items';
+    const SUPPLIES_API_URL = 'https://uwvjbs5hpe.execute-api.ap-northeast-3.amazonaws.com/test2/supplies';
+    const REQUESTS_API_URL = 'https://uwvjbs5hpe.execute-api.ap-northeast-3.amazonaws.com/test2/requests';
+    const WAREHOUSES_API_URL = 'https://uwvjbs5hpe.execute-api.ap-northeast-3.amazonaws.com/test2/warehouses';
+
+    let allRequests = [];
+    let allWarehouses = [];
+    let sheltersData = [];
+    let allSuppliesData = [];
+    let logisticsMap;
+    let logisticsMarkers = [];
+    let currentShipRequest = null;
+
+    function getLowStockThreshold(itemName, occupancy) {
+        const n = occupancy || 0;
+        const thresholds = {
+            '水（500ml）': n * 9, '水（2L）': n * 2.25,
+            'お茶（500ml）': n * 9, 'お茶（2L）': n * 2.25,
+            'スポーツドリンク（500ml）': n * 9, 'スポーツドリンク（2L）': n * 2.25,
+            'アルファ化米': n * 9, 'パックご飯': n * 9, '弁当': n * 9,
+            '缶詰': n * 9, 'レトルト食品': n * 9, 'おかゆ': n * 9,
+            '紙皿': n * 9, '紙ボウル': n * 9, '紙コップ': n * 9,
+            '割りばし': n * 9, 'スプーン': n * 9, 'フォーク': n * 9,
+            'カイロ': n * 9, 'おむつ（大人用）': n * 15, 'おむつ（子供用）': n * 21,
+            '携帯トイレ': n * 15, 'トイレットペーパー': n * 24.75,
+            '歯ブラシ': n * 1, 'マスク': n * 9, '生理用品': n * 16.5, 'ティッシュ': n * 1,
+        };
+        return thresholds[itemName] !== undefined ? thresholds[itemName] : 10;
+    }
+
+    // 逼迫度計算（0〜100）
+    function calcPressureScore(shelter, suppliesForShelter) {
+        const capacity = shelter.capacity || 1;
+        const occupancy = shelter.current_occupancy || 0;
+        const occupancyRate = occupancy / capacity;
+
+        let lowStockCount = 0;
+        if (suppliesForShelter) {
+            suppliesForShelter.forEach(s => {
+                const threshold = getLowStockThreshold(s.item_name, occupancy);
+                if (s.quantity <= threshold) lowStockCount++;
+            });
+        }
+
+        // 収容率70% + 物資不足30%
+        const score = (occupancyRate * 70) + (Math.min(lowStockCount, 5) / 5 * 30);
+        return Math.round(score);
+    }
+
+    function initMap() {
+        logisticsMap = L.map('logistics_map').setView([34.0047, 135.1847], 10);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(logisticsMap);
+    }
+
+    function updateLogisticsMap() {
+        logisticsMarkers.forEach(m => logisticsMap.removeLayer(m));
+        logisticsMarkers = [];
+
+        const suppliesMap = {};
+        allSuppliesData.forEach(s => { suppliesMap[s.shelter_id] = s.supplies || []; });
+
+        const bounds = [];
+        sheltersData.forEach(shelter => {
+            if (!shelter.latitude || !shelter.longitude) return;
+
+            const score = calcPressureScore(shelter, suppliesMap[shelter.shelterID]);
+            let color = '#198754'; // 緑
+            if (score >= 70) color = '#dc3545'; // 赤
+            else if (score >= 40) color = '#fd7e14'; // オレンジ
+
+            const icon = L.divIcon({
+                className: '',
+                html: `<div style="background-color:${color};width:36px;height:36px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);border:3px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;">
+                    <span style="transform:rotate(45deg);font-size:14px;font-weight:bold;color:white">${score}</span>
+                </div>`,
+                iconSize: [36, 36],
+                iconAnchor: [18, 36],
+                popupAnchor: [0, -36]
+            });
+
+            const marker = L.marker([shelter.latitude, shelter.longitude], { icon })
+                .addTo(logisticsMap)
+                .bindPopup(`<strong>${shelter.shelterName}</strong><br>逼迫度: ${score}<br>収容率: ${Math.round((shelter.current_occupancy / shelter.capacity) * 100)}%<br>状態: ${shelter.status}`);
+
+            logisticsMarkers.push(marker);
+            bounds.push([shelter.latitude, shelter.longitude]);
+        });
+
+        if (bounds.length > 0) {
+            logisticsMap.fitBounds(bounds, { padding: [40, 40] });
+        }
+    }
+
+    async function fetchRequests() {
+        const statusFilter = document.getElementById('req_status_filter').value;
+        let url = REQUESTS_API_URL;
+        if (statusFilter) url += `?status=${encodeURIComponent(statusFilter)}`;
+
+        try {
+            const response = await fetch(url);
+            const data = await response.json();
+            allRequests = data.requests || [];
+            renderRequests();
+        } catch (e) {
+            console.error(e);
+            document.getElementById('logistics_requests_body').innerHTML =
+                '<tr><td colspan="7" class="text-center text-danger">要請データの取得に失敗しました</td></tr>';
+        }
+    }
+
+    function renderRequests() {
+        const sortBy = document.getElementById('req_urgency_sort').value;
+        let sorted = [...allRequests];
+
+        if (sortBy === 'urgency') {
+            const urgencyOrder = { high: 0, medium: 1, low: 2 };
+            sorted.sort((a, b) => (urgencyOrder[a.urgency] ?? 1) - (urgencyOrder[b.urgency] ?? 1));
+        } else {
+            sorted.sort((a, b) => b.created_at.localeCompare(a.created_at));
+        }
+
+        const tbody = document.getElementById('logistics_requests_body');
+        if (!sorted.length) {
+            tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">要請データがありません</td></tr>';
+            return;
+        }
+
+        const urgencyLabel = { high: '<span class="badge bg-danger">🚨 高</span>', medium: '<span class="badge bg-warning text-dark">⚠️ 中</span>', low: '<span class="badge bg-secondary">低</span>' };
+        const statusLabel = { pending: '<span class="badge bg-warning text-dark">承認待ち</span>', approved: '<span class="badge bg-success">承認済み</span>', rejected: '<span class="badge bg-danger">却下</span>', shipped: '<span class="badge bg-info">出荷中</span>', delivered: '<span class="badge bg-primary">受領済み</span>' };
+
+        tbody.innerHTML = sorted.map(r => {
+            const createdAt = r.created_at ? new Date(r.created_at).toLocaleString('ja-JP') : '-';
+            const isUrgent = r.urgency === 'high' ? 'table-danger' : '';
+            const shipBtn = r.status === 'approved'
+                ? `<button class="btn btn-sm btn-primary" onclick="openShipPanel('${r.request_id}', '${r.shelter_id}', '${r.item_name}', ${r.quantity})">出荷指示</button>`
+                : '';
+            return `
+                <tr class="${isUrgent}">
+                    <td>${r.shelter_id}</td>
+                    <td>${r.item_name}</td>
+                    <td>${r.quantity}</td>
+                    <td>${urgencyLabel[r.urgency] || r.urgency}</td>
+                    <td>${statusLabel[r.status] || r.status}</td>
+                    <td><small>${createdAt}</small></td>
+                    <td>${shipBtn}</td>
+                </tr>
+            `;
+        }).join('');
+    }
+
+    async function fetchWarehouses() {
+        try {
+            const response = await fetch(WAREHOUSES_API_URL);
+            const data = await response.json();
+            allWarehouses = data.warehouses || [];
+            renderWarehouses();
+            updateWarehouseSelect();
+        } catch (e) {
+            console.error(e);
+            document.getElementById('warehouse_list').innerHTML =
+                '<div class="alert alert-warning">倉庫データの取得に失敗しました（WarehouseInventoryテーブルが未作成の可能性があります）。</div>';
+        }
+    }
+
+    function renderWarehouses() {
+        const container = document.getElementById('warehouse_list');
+        if (!allWarehouses.length) {
+            container.innerHTML = '<div class="text-muted text-center py-2">倉庫データがありません</div>';
+            return;
+        }
+
+        container.innerHTML = allWarehouses.map(w => `
+            <div class="mb-3">
+                <h6 class="text-secondary">${w.warehouse_name || w.warehouse_id} <small class="text-muted">${w.location || ''}</small></h6>
+                <table class="table table-sm table-bordered mb-0">
+                    <thead class="table-light"><tr><th>物資品目</th><th>在庫数</th><th>最終更新</th></tr></thead>
+                    <tbody>
+                        ${(w.items || []).map(item => `
+                            <tr>
+                                <td>${item.item_name}</td>
+                                <td>${item.quantity}</td>
+                                <td><small>${item.updated_at ? new Date(item.updated_at).toLocaleString('ja-JP') : '-'}</small></td>
+                            </tr>
+                        `).join('') || '<tr><td colspan="3" class="text-center text-muted">在庫なし</td></tr>'}
+                    </tbody>
+                </table>
+            </div>
+        `).join('');
+    }
+
+    function updateWarehouseSelect() {
+        const select = document.getElementById('ship_warehouse_id');
+        const current = select.value;
+        select.innerHTML = '<option value="">倉庫を選択してください</option>';
+        allWarehouses.forEach(w => {
+            const option = document.createElement('option');
+            option.value = w.warehouse_id;
+            option.textContent = `${w.warehouse_id} - ${w.warehouse_name || w.warehouse_id}`;
+            if (w.warehouse_id === current) option.selected = true;
+            select.appendChild(option);
+        });
+    }
+
+    function openShipPanel(requestId, shelterId, itemName, quantity) {
+        currentShipRequest = { requestId, shelterId, itemName, quantity };
+        document.getElementById('ship_request_id').textContent = requestId;
+        document.getElementById('ship_shelter_id').textContent = shelterId;
+        document.getElementById('ship_item_name').textContent = itemName;
+        document.getElementById('ship_quantity').textContent = quantity;
+        document.getElementById('ship_qty').value = quantity;
+        document.getElementById('ship_message').innerHTML = '';
+        document.getElementById('warehouse_stock_info').textContent = '';
+        document.getElementById('ship_panel_empty').style.display = 'none';
+        document.getElementById('ship_panel_form').style.display = 'block';
+        document.getElementById('ship_panel_form').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+
+    function cancelShipPanel() {
+        currentShipRequest = null;
+        document.getElementById('ship_panel_empty').style.display = 'block';
+        document.getElementById('ship_panel_form').style.display = 'none';
+    }
+
+    function showWarehouseStock() {
+        if (!currentShipRequest) return;
+        const warehouseId = document.getElementById('ship_warehouse_id').value;
+        const warehouse = allWarehouses.find(w => w.warehouse_id === warehouseId);
+        const infoEl = document.getElementById('warehouse_stock_info');
+
+        if (!warehouse) { infoEl.textContent = ''; return; }
+
+        const item = (warehouse.items || []).find(i => i.item_name === currentShipRequest.itemName);
+        if (item) {
+            infoEl.textContent = `「${currentShipRequest.itemName}」の在庫: ${item.quantity}個`;
+            infoEl.className = item.quantity >= currentShipRequest.quantity ? 'text-success' : 'text-danger';
+        } else {
+            infoEl.textContent = `「${currentShipRequest.itemName}」の在庫データなし`;
+            infoEl.className = 'text-warning';
+        }
+    }
+
+    async function executeShipment() {
+        if (!currentShipRequest) return;
+        const warehouseId = document.getElementById('ship_warehouse_id').value;
+        const shipQty = parseInt(document.getElementById('ship_qty').value);
+        const msgDiv = document.getElementById('ship_message');
+
+        if (!warehouseId) { msgDiv.innerHTML = '<div class="alert alert-danger">倉庫を選択してください。</div>'; return; }
+        if (!shipQty || shipQty <= 0) { msgDiv.innerHTML = '<div class="alert alert-danger">出荷数量を入力してください。</div>'; return; }
+
+        try {
+            // 1. 倉庫在庫を減算
+            const warehouseRes = await fetch(WAREHOUSES_API_URL, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ warehouse_id: warehouseId, item_name: currentShipRequest.itemName, delta: -shipQty })
+            });
+            const warehouseData = await warehouseRes.json();
+            if (!warehouseRes.ok) {
+                msgDiv.innerHTML = `<div class="alert alert-danger">在庫エラー: ${warehouseData.error || '在庫の更新に失敗しました'}</div>`;
+                return;
+            }
+
+            // 2. 要請ステータスをshippedに更新
+            const requestRes = await fetch(REQUESTS_API_URL, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ request_id: currentShipRequest.requestId, status: 'shipped' })
+            });
+            const requestData = await requestRes.json();
+            if (!requestRes.ok) {
+                msgDiv.innerHTML = `<div class="alert alert-danger">要請更新エラー: ${requestData.error || '更新に失敗しました'}</div>`;
+                return;
+            }
+
+            msgDiv.innerHTML = '<div class="alert alert-success">出荷指示を実行しました。</div>';
+            setTimeout(() => {
+                cancelShipPanel();
+                fetchRequests();
+                fetchWarehouses();
+            }, 1500);
+        } catch (e) {
+            console.error(e);
+            msgDiv.innerHTML = '<div class="alert alert-danger">通信エラーが発生しました。</div>';
+        }
+    }
+
+    async function updateWarehouse() {
+        const warehouseId = document.getElementById('wh_id').value.trim();
+        const itemName = document.getElementById('wh_item').value.trim();
+        const delta = parseInt(document.getElementById('wh_delta').value);
+        const warehouseName = document.getElementById('wh_name').value.trim();
+        const msgDiv = document.getElementById('warehouse_message');
+
+        if (!warehouseId || !itemName || isNaN(delta)) {
+            msgDiv.innerHTML = '<div class="alert alert-danger">倉庫ID・物資品目・増減量は必須です。</div>';
+            return;
+        }
+
+        try {
+            const response = await fetch(WAREHOUSES_API_URL, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ warehouse_id: warehouseId, item_name: itemName, delta, warehouse_name: warehouseName })
+            });
+            const data = await response.json();
+            if (response.ok) {
+                msgDiv.innerHTML = `<div class="alert alert-success alert-dismissible">在庫を更新しました（${itemName}: ${data.quantity}個）。<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>`;
+                fetchWarehouses();
+            } else {
+                msgDiv.innerHTML = `<div class="alert alert-danger">エラー: ${data.error || '更新に失敗しました'}</div>`;
+            }
+        } catch (e) {
+            console.error(e);
+            msgDiv.innerHTML = '<div class="alert alert-danger">通信エラーが発生しました。</div>';
+        }
+    }
+
+    window.onload = async function() {
+        initMap();
+        try {
+            const [shelterRes, suppliesRes] = await Promise.all([
+                fetch(API_URL),
+                fetch(SUPPLIES_API_URL + '/all')
+            ]);
+            sheltersData = await shelterRes.json();
+            const suppliesData = await suppliesRes.json();
+            allSuppliesData = suppliesData.shelters || [];
+            updateLogisticsMap();
+        } catch (e) {
+            console.error(e);
+        }
+        fetchRequests();
+        fetchWarehouses();
+    };
+</script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
