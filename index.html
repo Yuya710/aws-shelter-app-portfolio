@@ -315,11 +315,18 @@
         const session = sessionStorage.getItem('shelter_user');
         if (!session) { location.href = '/login.html'; return; }
         const user = JSON.parse(session);
-        if (user.role !== 'admin') { location.href = '/login.html'; }
+        if (user.role !== 'admin' && user.role !== 'developer') { location.href = '/login.html'; }
         // ナビバーにユーザー名表示
         document.addEventListener('DOMContentLoaded', () => {
             const brand = document.querySelector('.navbar-brand');
             if (brand) brand.innerHTML += ` <small class="text-white-50 fs-6">（${user.name}）</small>`;
+            // developerは全ナビリンクを表示
+            if (user.role === 'developer') {
+                ['nav-field','nav-logistics'].forEach(id => {
+                    const el = document.getElementById(id);
+                    if (el) el.style.display = '';
+                });
+            }
         });
     })();
 </script>
