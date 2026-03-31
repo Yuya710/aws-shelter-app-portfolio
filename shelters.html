@@ -192,7 +192,7 @@
         const session = sessionStorage.getItem('shelter_user');
         if (!session) { location.href = '/login.html'; return; }
         const user = JSON.parse(session);
-        if (user.role !== 'admin') { location.href = '/login.html'; }
+        if (user.role !== 'admin' && user.role !== 'developer') { location.href = '/login.html'; }
     })();
 </script>
 <script>
