@@ -236,10 +236,16 @@
         const session = sessionStorage.getItem('shelter_user');
         if (!session) { location.href = '/login.html'; return; }
         const user = JSON.parse(session);
-        if (user.role !== 'field') { location.href = '/login.html'; }
+        if (user.role !== 'field' && user.role !== 'developer') { location.href = '/login.html'; }
         document.addEventListener('DOMContentLoaded', () => {
             const brand = document.querySelector('.navbar-brand');
             if (brand) brand.innerHTML += ` <small class="text-white-50 fs-6">（${user.name}）</small>`;
+            if (user.role === 'developer') {
+                ['nav-index','nav-logistics'].forEach(id => {
+                    const el = document.getElementById(id);
+                    if (el) el.style.display = '';
+                });
+            }
         });
     })();
 </script>
