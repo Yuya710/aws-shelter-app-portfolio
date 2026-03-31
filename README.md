@@ -10,9 +10,11 @@
 
 https://staging.d1qmuvazgw6sq6.amplifyapp.com/login.html
 
+以下のデモアカウントで全機能を閲覧できます。
+
 | 職員ID | パスワード | ロール |
 |--------|-----------|--------|
-| （DynamoDB ShelterUsersテーブルを参照） | - | admin / field / logistics |
+| DEV001 | dev-password | developer（全モードアクセス可） |
 
 ## 主な機能
 
@@ -120,3 +122,4 @@ Compress-Archive -Path index.html, field.html, logistics.html, shelters.html, su
 - SAM / CDKによるInfrastructure as Code化
 - PWA化によるオフライン対応
 - LINE Notify等によるプッシュ通知
+
